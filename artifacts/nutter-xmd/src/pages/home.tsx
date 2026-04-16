@@ -7,11 +7,9 @@ import { ApiError } from "@workspace/api-client-react";
 import {
   usePairRequest,
   useGetPairQr,
-  useGetPairStatus,
   useResetPairing,
   useStartQrPairing,
   getGetPairQrQueryKey,
-  getGetPairStatusQueryKey,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,37 +68,40 @@ export function HomePage() {
     query: {
       enabled: qrActive,
       queryKey: getGetPairQrQueryKey(),
-      // Once QR is visible refresh every 25s; while still connecting check every 2s
       refetchInterval: (query) => query.state.data?.qr ? 25000 : 2000,
-      // Don't retry on error — server signals disconnected via 503; let user reset
       retry: false,
     },
   });
 
-  // Poll /pair/status every 2s after submitting — stops once pair code arrives or session fails
-  const { data: statusData } = useGetPairStatus({
-    query: {
-      enabled: pairCodePending,
-      queryKey: getGetPairStatusQueryKey(),
-      refetchInterval: 2000,
-      retry: false,
-    },
-  });
-
+  // Poll /pair/status every second using a plain interval — avoids React Query
+  // caching and enabled-flag timing issues that can swallow the code update.
   useEffect(() => {
-    if (!statusData) return;
-    if (statusData.pairCode && statusData.status === "pair_code_ready") {
-      setPairCode(statusData.pairCode);
-      setPairCodePending(false);
-    } else if (statusData.status === "disconnected") {
-      setPairCodePending(false);
-      toast({
-        variant: "destructive",
-        title: "WhatsApp connection failed",
-        description: "Could not reach WhatsApp. Try again or use QR code mode.",
-      });
-    }
-  }, [statusData]);
+    if (!pairCodePending) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/pair/status");
+        if (!res.ok) return;
+        const data = await res.json() as { status: string; pairCode: string | null };
+        if (data.pairCode && data.status === "pair_code_ready") {
+          setPairCode(data.pairCode);
+          setPairCodePending(false);
+          toast({ title: "Pair code ready!", description: "Enter the code in WhatsApp → Linked Devices → Link a Device." });
+        } else if (data.status === "disconnected") {
+          setPairCodePending(false);
+          toast({
+            variant: "destructive",
+            title: "WhatsApp connection failed",
+            description: "Could not reach WhatsApp. Try again or use QR code mode.",
+          });
+        }
+      } catch (_) { /* ignore transient network errors */ }
+    };
+
+    const id = setInterval(poll, 1000);
+    poll(); // fire immediately
+    return () => clearInterval(id);
+  }, [pairCodePending]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
