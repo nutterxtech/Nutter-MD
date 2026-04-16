@@ -64138,7 +64138,7 @@ async function getWaVersion() {
     return [2, 3e3, 1035194821];
   }
 }
-async function startPairingSession(phoneNumber, attempt = 0) {
+async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest = false) {
   if (attempt === 0) {
     currentGeneration++;
   }
@@ -64150,10 +64150,12 @@ async function startPairingSession(phoneNumber, attempt = 0) {
   const version3 = await getWaVersion();
   logger.info({ version: version3, attempt }, "Starting pairing session");
   const sessionDir = path3.join(process.cwd(), ".pairing-session");
-  if (fs2.existsSync(sessionDir)) {
-    fs2.rmSync(sessionDir, { recursive: true, force: true });
+  if (!skipPairCodeRequest) {
+    if (fs2.existsSync(sessionDir)) {
+      fs2.rmSync(sessionDir, { recursive: true, force: true });
+    }
+    fs2.mkdirSync(sessionDir, { recursive: true });
   }
-  fs2.mkdirSync(sessionDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
   const sock = makeWASocket({
     auth: state,
@@ -64182,7 +64184,7 @@ async function startPairingSession(phoneNumber, attempt = 0) {
     }
   });
   const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
-  let pairCodeRequested = false;
+  let pairCodeRequested = skipPairCodeRequest;
   sock.ev.on("connection.update", async (update) => {
     if (myGeneration !== currentGeneration) return;
     const { connection, lastDisconnect, qr } = update;
@@ -64234,17 +64236,18 @@ _Keep this private \u2014 anyone with it can control your bot._`;
         pairingState.status = "disconnected";
         return;
       }
-      if (pairingState.pairCode && pairingState.status === "pair_code_ready") {
-        logger.info("Connection closed after pair code delivery \u2014 keeping code visible, no retry");
-        return;
-      }
       if (attempt < MAX_PAIRING_RETRIES) {
         const delayMs = jitteredDelay(attempt);
-        logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing \u2014 retrying");
-        pairingState.status = "connecting";
+        const hasPairCode = !!(pairingState.pairCode && pairingState.status === "pair_code_ready");
+        if (hasPairCode) {
+          logger.info({ attempt: attempt + 1, delayMs }, "Reconnecting to receive pair code confirmation (no new code)");
+        } else {
+          logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing \u2014 retrying");
+          pairingState.status = "connecting";
+        }
         setTimeout(() => {
           if (myGeneration !== currentGeneration) return;
-          startPairingSession(phoneNumber, attempt + 1).catch((err) => {
+          startPairingSession(phoneNumber, attempt + 1, hasPairCode).catch((err) => {
             logger.error({ err }, "Retry attempt failed");
             if (myGeneration === currentGeneration) pairingState.status = "disconnected";
           });

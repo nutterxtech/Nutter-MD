@@ -79,7 +79,11 @@ async function getWaVersion(): Promise<[number, number, number]> {
   }
 }
 
-export async function startPairingSession(phoneNumber: string, attempt = 0): Promise<void> {
+export async function startPairingSession(
+  phoneNumber: string,
+  attempt = 0,
+  skipPairCodeRequest = false,
+): Promise<void> {
   // Each top-level call (attempt === 0) advances the generation so any
   // lingering sockets from a previous session become inert.
   if (attempt === 0) {
@@ -98,10 +102,16 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
   logger.info({ version, attempt }, "Starting pairing session");
 
   const sessionDir = path.join(process.cwd(), ".pairing-session");
-  if (fs.existsSync(sessionDir)) {
-    fs.rmSync(sessionDir, { recursive: true, force: true });
+  // Only wipe the session directory on fresh starts.
+  // When reconnecting after a pair code was delivered (skipPairCodeRequest=true),
+  // we must keep the existing auth state — it contains the pending pairing info
+  // that WhatsApp will confirm when the user enters the code.
+  if (!skipPairCodeRequest) {
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(sessionDir, { recursive: true });
   }
-  fs.mkdirSync(sessionDir, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
@@ -135,7 +145,10 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
   });
 
   const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
-  let pairCodeRequested = false;
+  // On reconnects where a pair code was already delivered, skip requesting a new one.
+  // The existing code is still valid — we just need the socket alive so WhatsApp
+  // can send back the confirmation once the user enters it.
+  let pairCodeRequested = skipPairCodeRequest;
 
   sock.ev.on("connection.update", async (update) => {
     // Ignore events from superseded sessions
@@ -198,22 +211,23 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
         return;
       }
 
-      // If a pair code was already delivered to the user, keep showing it.
-      // The code is valid server-side even after Baileys' internal timeout fires.
-      // Don't generate a new one — the user just needs to enter the existing one.
-      if (pairingState.pairCode && pairingState.status === "pair_code_ready") {
-        logger.info("Connection closed after pair code delivery — keeping code visible, no retry");
-        return;
-      }
-
-      // Connection failed before a code was generated — retry
       if (attempt < MAX_PAIRING_RETRIES) {
         const delayMs = jitteredDelay(attempt);
-        logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing — retrying");
-        pairingState.status = "connecting";
+        const hasPairCode = !!(pairingState.pairCode && pairingState.status === "pair_code_ready");
+
+        if (hasPairCode) {
+          // Pair code already shown to the user — reconnect WITHOUT requesting a new code.
+          // WhatsApp will send the pairing confirmation over this new socket once the
+          // user enters the code in their phone.
+          logger.info({ attempt: attempt + 1, delayMs }, "Reconnecting to receive pair code confirmation (no new code)");
+        } else {
+          logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing — retrying");
+          pairingState.status = "connecting";
+        }
+
         setTimeout(() => {
           if (myGeneration !== currentGeneration) return;
-          startPairingSession(phoneNumber, attempt + 1).catch((err) => {
+          startPairingSession(phoneNumber, attempt + 1, hasPairCode).catch((err) => {
             logger.error({ err }, "Retry attempt failed");
             if (myGeneration === currentGeneration) pairingState.status = "disconnected";
           });
