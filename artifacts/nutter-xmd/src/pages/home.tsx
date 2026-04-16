@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Copy, RefreshCw, QrCode, Hash, Smartphone, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { ApiError } from "@workspace/api-client-react";
 import { 
@@ -10,6 +10,7 @@ import {
   useGetPairQr, 
   useGetPairStatus, 
   useResetPairing,
+  useStartQrPairing,
   getGetPairQrQueryKey,
   getGetPairStatusQueryKey,
 } from "@workspace/api-client-react";
@@ -41,16 +42,11 @@ export function HomePage() {
   const pairRequest = usePairRequest();
   const resetPairing = useResetPairing();
 
-  const startQrSession = useMutation({
-    mutationFn: () => fetch("/api/pair/start-qr", { method: "POST" }).then(async (r) => {
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({})) as { message?: string };
-        throw new Error(data.message || `HTTP ${r.status}`);
-      }
-      return r.json() as Promise<{ status: string; pairingToken?: string }>;
-    }),
-    onSuccess: (data) => {
-      if (data.pairingToken) setPairingToken(data.pairingToken);
+  const startQrSession = useStartQrPairing({
+    mutation: {
+      onSuccess: (data) => {
+        if (data.pairingToken) setPairingToken(data.pairingToken);
+      },
     },
   });
 
@@ -98,8 +94,7 @@ export function HomePage() {
         data: { phoneNumber: values.phoneNumber }
       });
       setPairCode(res.pairCode);
-      const resAny = res as unknown as Record<string, unknown>;
-      if (resAny["pairingToken"]) setPairingToken(resAny["pairingToken"] as string);
+      if (res.pairingToken) setPairingToken(res.pairingToken);
     } catch (err: unknown) {
       toast({
         variant: "destructive",

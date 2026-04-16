@@ -23,6 +23,15 @@ export interface PairRequestResponse {
   /** 8-character pair code to enter in WhatsApp */
   pairCode: string;
   phoneNumber: string;
+  /** One-time token required to retrieve the SESSION_ID from /pair/session */
+  pairingToken: string;
+}
+
+export interface StartQrResponse {
+  status: string;
+  message?: string;
+  /** Token required to retrieve SESSION_ID from /pair/session */
+  pairingToken: string;
 }
 
 export interface PairQrResponse {

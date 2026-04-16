@@ -28,6 +28,11 @@ export const PairRequestBody = zod.object({
 export const PairRequestResponse = zod.object({
   pairCode: zod.string().describe("8-character pair code to enter in WhatsApp"),
   phoneNumber: zod.string(),
+  pairingToken: zod
+    .string()
+    .describe(
+      "One-time token required to retrieve the SESSION_ID from \/pair\/session",
+    ),
 });
 
 /**
@@ -58,7 +63,7 @@ export const GetPairStatusResponse = zod.object({
 });
 
 /**
- * Returns the base64-encoded session ID once WhatsApp is connected
+ * Returns the base64-encoded session ID once WhatsApp is connected. Requires the x-pairing-token header returned when pairing started.
  * @summary Get session ID after successful pairing
  */
 export const GetPairSessionResponse = zod.object({
@@ -66,6 +71,18 @@ export const GetPairSessionResponse = zod.object({
     .string()
     .describe("Base64-encoded session credentials to paste into Heroku config"),
   phoneNumber: zod.string(),
+});
+
+/**
+ * Initializes a Baileys session in QR mode. Returns a pairingToken to use when fetching the SESSION_ID.
+ * @summary Start QR code pairing session
+ */
+export const StartQrPairingResponse = zod.object({
+  status: zod.string(),
+  message: zod.string().optional(),
+  pairingToken: zod
+    .string()
+    .describe("Token required to retrieve SESSION_ID from \/pair\/session"),
 });
 
 /**

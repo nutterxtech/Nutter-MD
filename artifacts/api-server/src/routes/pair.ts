@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { pairingState, startPairingSession, startQrSession, resetPairingState, getActivePairingSocket } from "../bot/pairingSession";
+import { pairingState, startPairingSession, startQrSession, resetPairingState, getActivePairingSocket, generatePairingToken } from "../bot/pairingSession";
 import { logger } from "../lib/logger";
 import { z } from "zod";
 
@@ -59,21 +59,25 @@ router.get("/pair/session", (req, res) => {
   });
 });
 
-router.post("/pair/start-qr", async (_req, res) => {
+router.post("/pair/start-qr", (_req, res) => {
   if (pairingState.status === "connected") {
     res.status(400).json({ error: "ALREADY_CONNECTED", message: "A session is already connected. Reset first." });
     return;
   }
 
-  try {
-    startQrSession().catch((err) => {
-      logger.error({ err }, "QR session error");
-    });
-    res.json({ status: "connecting", message: "QR session starting. Poll /pair/qr for the code.", pairingToken: pairingState.pairingToken });
-  } catch (err) {
-    logger.error({ err }, "Failed to start QR session");
-    res.status(500).json({ error: "QR_FAILED", message: "Failed to start QR session. Try again." });
-  }
+  resetPairingState();
+  pairingState.status = "connecting";
+  const token = generatePairingToken();
+  pairingState.pairingToken = token;
+
+  startQrSession().catch((err) => {
+    logger.error({ err }, "QR session error");
+    if (pairingState.status === "connecting") {
+      pairingState.status = "disconnected";
+    }
+  });
+
+  res.json({ status: "connecting", message: "QR session starting. Poll /pair/qr for the code.", pairingToken: token });
 });
 
 router.post("/pair/reset", async (_req, res) => {

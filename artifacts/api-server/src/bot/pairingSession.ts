@@ -30,7 +30,7 @@ export const pairingState: PairingSessionState = {
   pairingToken: null,
 };
 
-function generatePairingToken(): string {
+export function generatePairingToken(): string {
   return `pt_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 }
 
@@ -156,10 +156,6 @@ export async function startQrSession(): Promise<void> {
     fs.rmSync(sessionDir, { recursive: true, force: true });
   }
   fs.mkdirSync(sessionDir, { recursive: true });
-
-  resetPairingState();
-  pairingState.status = "connecting";
-  pairingState.pairingToken = generatePairingToken();
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 

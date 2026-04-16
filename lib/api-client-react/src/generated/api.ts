@@ -26,6 +26,7 @@ import type {
   PairRequestResponse,
   PairSessionResponse,
   PairStatusResponse,
+  StartQrResponse,
   VerifyForkParams,
 } from "./api.schemas";
 
@@ -346,7 +347,7 @@ export function useGetPairStatus<
 }
 
 /**
- * Returns the base64-encoded session ID once WhatsApp is connected
+ * Returns the base64-encoded session ID once WhatsApp is connected. Requires the x-pairing-token header returned when pairing started.
  * @summary Get session ID after successful pairing
  */
 export const getGetPairSessionUrl = () => {
@@ -371,7 +372,7 @@ export const getGetPairSessionQueryKey = () => {
 
 export const getGetPairSessionQueryOptions = <
   TData = Awaited<ReturnType<typeof getPairSession>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
 >(options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof getPairSession>>,
@@ -398,7 +399,7 @@ export const getGetPairSessionQueryOptions = <
 export type GetPairSessionQueryResult = NonNullable<
   Awaited<ReturnType<typeof getPairSession>>
 >;
-export type GetPairSessionQueryError = ErrorType<unknown>;
+export type GetPairSessionQueryError = ErrorType<ErrorResponse>;
 
 /**
  * @summary Get session ID after successful pairing
@@ -406,7 +407,7 @@ export type GetPairSessionQueryError = ErrorType<unknown>;
 
 export function useGetPairSession<
   TData = Awaited<ReturnType<typeof getPairSession>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
 >(options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof getPairSession>>,
@@ -423,6 +424,88 @@ export function useGetPairSession<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Initializes a Baileys session in QR mode. Returns a pairingToken to use when fetching the SESSION_ID.
+ * @summary Start QR code pairing session
+ */
+export const getStartQrPairingUrl = () => {
+  return `/api/pair/start-qr`;
+};
+
+export const startQrPairing = async (
+  options?: RequestInit,
+): Promise<StartQrResponse> => {
+  return customFetch<StartQrResponse>(getStartQrPairingUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getStartQrPairingMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startQrPairing>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startQrPairing>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["startQrPairing"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startQrPairing>>,
+    void
+  > = () => {
+    return startQrPairing(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartQrPairingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startQrPairing>>
+>;
+
+export type StartQrPairingMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Start QR code pairing session
+ */
+export const useStartQrPairing = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startQrPairing>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startQrPairing>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getStartQrPairingMutationOptions(options));
+};
 
 /**
  * Clears the current pairing session to start fresh

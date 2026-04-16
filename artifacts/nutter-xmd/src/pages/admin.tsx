@@ -26,13 +26,16 @@ export function AdminPage() {
     },
   });
 
-  const { data, isLoading, isError, error, refetch } = useGetAdminForks(
-    {
-      request: {
-        headers: password ? { 'x-admin-password': password } : undefined
-      }
+  const { data, isLoading, isError, error, refetch } = useGetAdminForks({
+    request: {
+      headers: password ? { 'x-admin-password': password } : {}
     },
-  );
+    query: {
+      enabled: !!password,
+      queryKey: ['admin-forks', password],
+      retry: false,
+    }
+  });
 
   // We consider it an auth error if it's 401 or 403
   const isAuthError = isError && error instanceof ApiError && error.status === 401;

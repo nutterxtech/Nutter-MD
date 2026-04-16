@@ -100,7 +100,9 @@ paths:
       operationId: getPairSession
       tags: [pair]
       summary: Get session ID after successful pairing
-      description: Returns the base64-encoded session ID once WhatsApp is connected
+      description: Returns the base64-encoded session ID once WhatsApp is connected. Requires the x-pairing-token header returned when pairing started.
+      security:
+        - pairingToken: []
       responses:
         "200":
           description: Session ID ready
@@ -110,6 +112,38 @@ paths:
                 $ref: "#/components/schemas/PairSessionResponse"
         "202":
           description: Pairing still in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid pairing token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pair/start-qr:
+    post:
+      operationId: startQrPairing
+      tags: [pair]
+      summary: Start QR code pairing session
+      description: Initializes a Baileys session in QR mode. Returns a pairingToken to use when fetching the SESSION_ID.
+      responses:
+        "200":
+          description: QR session starting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartQrResponse"
+        "400":
+          description: Already connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
           content:
             application/json:
               schema:
@@ -183,6 +217,10 @@ components:
       type: apiKey
       in: header
       name: x-admin-password
+    pairingToken:
+      type: apiKey
+      in: header
+      name: x-pairing-token
 
   schemas:
     HealthStatus:
@@ -220,9 +258,27 @@ components:
           description: 8-character pair code to enter in WhatsApp
         phoneNumber:
           type: string
+        pairingToken:
+          type: string
+          description: One-time token required to retrieve the SESSION_ID from /pair/session
       required:
         - pairCode
         - phoneNumber
+        - pairingToken
+
+    StartQrResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        pairingToken:
+          type: string
+          description: Token required to retrieve SESSION_ID from /pair/session
+      required:
+        - status
+        - pairingToken
 
     PairQrResponse:
       type: object
