@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { Boom } from "@hapi/boom";
 import { logger } from "../lib/logger";
 import { encodeSessionToBase64, type SessionFileMap } from "./session";
@@ -31,7 +32,7 @@ export const pairingState: PairingSessionState = {
 };
 
 export function generatePairingToken(): string {
-  return `pt_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  return `pt_${randomBytes(16).toString("hex")}`;
 }
 
 export function resetPairingState() {
