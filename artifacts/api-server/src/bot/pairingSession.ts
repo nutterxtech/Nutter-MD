@@ -55,6 +55,12 @@ export function getActivePairingSocket() {
   return activePairingSocket;
 }
 
+// Generation counter — incremented each time a new top-level pairing session
+// starts (from the route handler). Retry attempts within the same session share
+// the same generation. When the user resets and triggers a brand-new session,
+// the generation increments so all old socket handlers become no-ops.
+let currentGeneration = 0;
+
 const MAX_PAIRING_RETRIES = 6;
 
 function jitteredDelay(attempt: number): number {
@@ -63,10 +69,33 @@ function jitteredDelay(attempt: number): number {
   return base + jitter;
 }
 
+async function getWaVersion(): Promise<[number, number, number]> {
+  try {
+    const { fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+    const result = await fetchLatestBaileysVersion();
+    return result.version;
+  } catch {
+    return [2, 3000, 1035194821];
+  }
+}
+
 export async function startPairingSession(phoneNumber: string, attempt = 0): Promise<void> {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+  // Each top-level call (attempt === 0) advances the generation so any
+  // lingering sockets from a previous session become inert.
+  if (attempt === 0) {
+    currentGeneration++;
+  }
+  const myGeneration = currentGeneration;
+
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const fs = await import("fs");
   const path = await import("path");
+
+  // Bail out early if a newer session has already started
+  if (myGeneration !== currentGeneration && attempt === 0) return;
+
+  const version = await getWaVersion();
+  logger.info({ version, attempt }, "Starting pairing session");
 
   const sessionDir = path.join(process.cwd(), ".pairing-session");
   if (fs.existsSync(sessionDir)) {
@@ -75,16 +104,6 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
   fs.mkdirSync(sessionDir, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-
-  let version: [number, number, number];
-  try {
-    const result = await fetchLatestBaileysVersion();
-    version = result.version;
-    logger.info({ version }, "Using latest WhatsApp version");
-  } catch {
-    version = [2, 3000, 1023076382];
-    logger.warn("Could not fetch latest version, using fallback");
-  }
 
   const sock = makeWASocket({
     auth: state,
@@ -100,6 +119,7 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
   setActivePairingSocket(sock);
 
   sock.ev.on("creds.update", async () => {
+    if (myGeneration !== currentGeneration) return;
     await saveCreds();
     try {
       const files = fs.readdirSync(sessionDir);
@@ -118,29 +138,33 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
   let pairCodeRequested = false;
 
   sock.ev.on("connection.update", async (update) => {
+    // Ignore events from superseded sessions
+    if (myGeneration !== currentGeneration) return;
+
     const { connection, lastDisconnect, qr } = update;
 
-    // Use the QR event as a signal that the socket is connected and ready.
-    // In pair-code mode we don't display the QR — we use it to trigger requestPairingCode.
+    // QR event fires when WhatsApp is ready — use it to request the pair code
     if (qr && !pairCodeRequested) {
       pairCodeRequested = true;
       try {
         const code = await sock.requestPairingCode(cleanNumber);
+        if (myGeneration !== currentGeneration) return; // superseded while awaiting
         const formattedCode = code?.match(/.{1,4}/g)?.join("-") ?? code;
         pairingState.pairCode = formattedCode ?? null;
         pairingState.status = "pair_code_ready";
         logger.info({ code: formattedCode }, "Pair code generated");
       } catch (err) {
+        if (myGeneration !== currentGeneration) return;
         logger.error({ err }, "Failed to generate pair code");
         pairingState.status = "disconnected";
       }
     }
 
     if (connection === "open") {
+      if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info({ phoneNumber }, "WhatsApp pairing session connected");
 
-      // Send SESSION_ID directly to the user's WhatsApp DM
       if (pairingState.sessionId) {
         const jid = `${cleanNumber}@s.whatsapp.net`;
         const msg =
@@ -159,23 +183,39 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
     }
 
     if (connection === "close") {
+      if (myGeneration !== currentGeneration) return;
+
       const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
+
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
         resetPairingState();
-      } else if (pairingState.status === "connected") {
-        // Already successfully connected once — just mark disconnected
+        return;
+      }
+
+      if (pairingState.status === "connected") {
         pairingState.status = "disconnected";
-      } else if (attempt < MAX_PAIRING_RETRIES) {
-        // Connection failed before pairing completed — retry with jittered backoff
+        return;
+      }
+
+      // If a pair code was already delivered to the user, keep showing it.
+      // The code is valid server-side even after Baileys' internal timeout fires.
+      // Don't generate a new one — the user just needs to enter the existing one.
+      if (pairingState.pairCode && pairingState.status === "pair_code_ready") {
+        logger.info("Connection closed after pair code delivery — keeping code visible, no retry");
+        return;
+      }
+
+      // Connection failed before a code was generated — retry
+      if (attempt < MAX_PAIRING_RETRIES) {
         const delayMs = jitteredDelay(attempt);
         logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing — retrying");
-        pairingState.status = "connecting"; // keep showing "connecting" during retry
-        pairCodeRequested = false;
+        pairingState.status = "connecting";
         setTimeout(() => {
+          if (myGeneration !== currentGeneration) return;
           startPairingSession(phoneNumber, attempt + 1).catch((err) => {
             logger.error({ err }, "Retry attempt failed");
-            pairingState.status = "disconnected";
+            if (myGeneration === currentGeneration) pairingState.status = "disconnected";
           });
         }, delayMs);
       } else {
@@ -187,10 +227,17 @@ export async function startPairingSession(phoneNumber: string, attempt = 0): Pro
 }
 
 export async function startQrSession(attempt = 0): Promise<void> {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+  if (attempt === 0) {
+    currentGeneration++;
+  }
+  const myGeneration = currentGeneration;
+
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: QRCode } = await import("qrcode");
   const fs = await import("fs");
   const path = await import("path");
+
+  const version = await getWaVersion();
 
   const sessionDir = path.join(process.cwd(), ".pairing-session");
   if (fs.existsSync(sessionDir)) {
@@ -199,14 +246,6 @@ export async function startQrSession(attempt = 0): Promise<void> {
   fs.mkdirSync(sessionDir, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-
-  let version: [number, number, number];
-  try {
-    const result = await fetchLatestBaileysVersion();
-    version = result.version;
-  } catch {
-    version = [2, 3000, 1023076382];
-  }
 
   const sock = makeWASocket({
     auth: state,
@@ -222,6 +261,7 @@ export async function startQrSession(attempt = 0): Promise<void> {
   setActivePairingSocket(sock);
 
   sock.ev.on("creds.update", async () => {
+    if (myGeneration !== currentGeneration) return;
     await saveCreds();
     try {
       const files = fs.readdirSync(sessionDir);
@@ -231,9 +271,7 @@ export async function startQrSession(attempt = 0): Promise<void> {
         fileMap[file] = JSON.parse(content);
       }
       pairingState.sessionId = encodeSessionToBase64(fileMap);
-      // Extract phone number from JID once credentials are set (QR mode)
       if (!pairingState.phoneNumber && state.creds.me?.id) {
-        // Strip device suffix (e.g. "254712345678:5@s.whatsapp.net" → "254712345678")
         pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
       }
     } catch (err) {
@@ -242,11 +280,14 @@ export async function startQrSession(attempt = 0): Promise<void> {
   });
 
   sock.ev.on("connection.update", async (update) => {
+    if (myGeneration !== currentGeneration) return;
+
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
       try {
         const dataUrl = await QRCode.toDataURL(qr);
+        if (myGeneration !== currentGeneration) return;
         pairingState.qrDataUrl = dataUrl;
         pairingState.qrExpiresAt = new Date(Date.now() + 60000);
         pairingState.status = "qr_ready";
@@ -257,11 +298,10 @@ export async function startQrSession(attempt = 0): Promise<void> {
     }
 
     if (connection === "open") {
+      if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info("WhatsApp QR session connected");
 
-      // Send SESSION_ID directly to the user's WhatsApp DM
-      // Strip device suffix from JID (e.g. "254712345678:5@s.whatsapp.net" → "254712345678")
       const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
       if (pairingState.sessionId && phoneNum) {
         const jid = `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
@@ -281,6 +321,8 @@ export async function startQrSession(attempt = 0): Promise<void> {
     }
 
     if (connection === "close") {
+      if (myGeneration !== currentGeneration) return;
+
       const reason = (lastDisconnect?.error as import("@hapi/boom").Boom)?.output?.statusCode;
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
@@ -290,12 +332,13 @@ export async function startQrSession(attempt = 0): Promise<void> {
       } else if (attempt < MAX_PAIRING_RETRIES) {
         const delayMs = jitteredDelay(attempt);
         logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp QR connection closed before scanning — retrying");
-        pairingState.qrDataUrl = null; // clear stale QR so UI shows "connecting" again
+        pairingState.qrDataUrl = null;
         pairingState.status = "connecting";
         setTimeout(() => {
+          if (myGeneration !== currentGeneration) return;
           startQrSession(attempt + 1).catch((err) => {
             logger.error({ err }, "QR retry attempt failed");
-            pairingState.status = "disconnected";
+            if (myGeneration === currentGeneration) pairingState.status = "disconnected";
           });
         }, delayMs);
       } else {

@@ -64122,31 +64122,39 @@ function setActivePairingSocket(sock) {
 function getActivePairingSocket() {
   return activePairingSocket;
 }
+var currentGeneration = 0;
 var MAX_PAIRING_RETRIES = 6;
 function jitteredDelay(attempt) {
   const base = Math.min(5e3 * (attempt + 1), 3e4);
   const jitter = Math.floor(Math.random() * 3e3);
   return base + jitter;
 }
+async function getWaVersion() {
+  try {
+    const { fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+    const result = await fetchLatestBaileysVersion();
+    return result.version;
+  } catch {
+    return [2, 3e3, 1035194821];
+  }
+}
 async function startPairingSession(phoneNumber, attempt = 0) {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+  if (attempt === 0) {
+    currentGeneration++;
+  }
+  const myGeneration = currentGeneration;
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const fs2 = await import("fs");
   const path3 = await import("path");
+  if (myGeneration !== currentGeneration && attempt === 0) return;
+  const version3 = await getWaVersion();
+  logger.info({ version: version3, attempt }, "Starting pairing session");
   const sessionDir = path3.join(process.cwd(), ".pairing-session");
   if (fs2.existsSync(sessionDir)) {
     fs2.rmSync(sessionDir, { recursive: true, force: true });
   }
   fs2.mkdirSync(sessionDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-  let version3;
-  try {
-    const result = await fetchLatestBaileysVersion();
-    version3 = result.version;
-    logger.info({ version: version3 }, "Using latest WhatsApp version");
-  } catch {
-    version3 = [2, 3e3, 1023076382];
-    logger.warn("Could not fetch latest version, using fallback");
-  }
   const sock = makeWASocket({
     auth: state,
     version: version3,
@@ -64159,6 +64167,7 @@ async function startPairingSession(phoneNumber, attempt = 0) {
   });
   setActivePairingSocket(sock);
   sock.ev.on("creds.update", async () => {
+    if (myGeneration !== currentGeneration) return;
     await saveCreds();
     try {
       const files = fs2.readdirSync(sessionDir);
@@ -64175,21 +64184,25 @@ async function startPairingSession(phoneNumber, attempt = 0) {
   const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
   let pairCodeRequested = false;
   sock.ev.on("connection.update", async (update) => {
+    if (myGeneration !== currentGeneration) return;
     const { connection, lastDisconnect, qr } = update;
     if (qr && !pairCodeRequested) {
       pairCodeRequested = true;
       try {
         const code = await sock.requestPairingCode(cleanNumber);
+        if (myGeneration !== currentGeneration) return;
         const formattedCode = code?.match(/.{1,4}/g)?.join("-") ?? code;
         pairingState.pairCode = formattedCode ?? null;
         pairingState.status = "pair_code_ready";
         logger.info({ code: formattedCode }, "Pair code generated");
       } catch (err) {
+        if (myGeneration !== currentGeneration) return;
         logger.error({ err }, "Failed to generate pair code");
         pairingState.status = "disconnected";
       }
     }
     if (connection === "open") {
+      if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info({ phoneNumber }, "WhatsApp pairing session connected");
       if (pairingState.sessionId) {
@@ -64210,21 +64223,30 @@ _Keep this private \u2014 anyone with it can control your bot._`;
       }
     }
     if (connection === "close") {
+      if (myGeneration !== currentGeneration) return;
       const reason = lastDisconnect?.error?.output?.statusCode;
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
         resetPairingState();
-      } else if (pairingState.status === "connected") {
+        return;
+      }
+      if (pairingState.status === "connected") {
         pairingState.status = "disconnected";
-      } else if (attempt < MAX_PAIRING_RETRIES) {
+        return;
+      }
+      if (pairingState.pairCode && pairingState.status === "pair_code_ready") {
+        logger.info("Connection closed after pair code delivery \u2014 keeping code visible, no retry");
+        return;
+      }
+      if (attempt < MAX_PAIRING_RETRIES) {
         const delayMs = jitteredDelay(attempt);
         logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing \u2014 retrying");
         pairingState.status = "connecting";
-        pairCodeRequested = false;
         setTimeout(() => {
+          if (myGeneration !== currentGeneration) return;
           startPairingSession(phoneNumber, attempt + 1).catch((err) => {
             logger.error({ err }, "Retry attempt failed");
-            pairingState.status = "disconnected";
+            if (myGeneration === currentGeneration) pairingState.status = "disconnected";
           });
         }, delayMs);
       } else {
@@ -64235,23 +64257,21 @@ _Keep this private \u2014 anyone with it can control your bot._`;
   });
 }
 async function startQrSession(attempt = 0) {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+  if (attempt === 0) {
+    currentGeneration++;
+  }
+  const myGeneration = currentGeneration;
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: QRCode } = await Promise.resolve().then(() => __toESM(require_lib4(), 1));
   const fs2 = await import("fs");
   const path3 = await import("path");
+  const version3 = await getWaVersion();
   const sessionDir = path3.join(process.cwd(), ".pairing-session");
   if (fs2.existsSync(sessionDir)) {
     fs2.rmSync(sessionDir, { recursive: true, force: true });
   }
   fs2.mkdirSync(sessionDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-  let version3;
-  try {
-    const result = await fetchLatestBaileysVersion();
-    version3 = result.version;
-  } catch {
-    version3 = [2, 3e3, 1023076382];
-  }
   const sock = makeWASocket({
     auth: state,
     version: version3,
@@ -64264,6 +64284,7 @@ async function startQrSession(attempt = 0) {
   });
   setActivePairingSocket(sock);
   sock.ev.on("creds.update", async () => {
+    if (myGeneration !== currentGeneration) return;
     await saveCreds();
     try {
       const files = fs2.readdirSync(sessionDir);
@@ -64281,10 +64302,12 @@ async function startQrSession(attempt = 0) {
     }
   });
   sock.ev.on("connection.update", async (update) => {
+    if (myGeneration !== currentGeneration) return;
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
       try {
         const dataUrl = await QRCode.toDataURL(qr);
+        if (myGeneration !== currentGeneration) return;
         pairingState.qrDataUrl = dataUrl;
         pairingState.qrExpiresAt = new Date(Date.now() + 6e4);
         pairingState.status = "qr_ready";
@@ -64294,6 +64317,7 @@ async function startQrSession(attempt = 0) {
       }
     }
     if (connection === "open") {
+      if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info("WhatsApp QR session connected");
       const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
@@ -64315,6 +64339,7 @@ _Keep this private \u2014 anyone with it can control your bot._`;
       }
     }
     if (connection === "close") {
+      if (myGeneration !== currentGeneration) return;
       const reason = lastDisconnect?.error?.output?.statusCode;
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
@@ -64327,9 +64352,10 @@ _Keep this private \u2014 anyone with it can control your bot._`;
         pairingState.qrDataUrl = null;
         pairingState.status = "connecting";
         setTimeout(() => {
+          if (myGeneration !== currentGeneration) return;
           startQrSession(attempt + 1).catch((err) => {
             logger.error({ err }, "QR retry attempt failed");
-            pairingState.status = "disconnected";
+            if (myGeneration === currentGeneration) pairingState.status = "disconnected";
           });
         }, delayMs);
       } else {
@@ -64439,8 +64465,8 @@ var import_express3 = __toESM(require_express2(), 1);
 init_logger();
 var router3 = (0, import_express3.Router)();
 var GITHUB_API_BASE = "https://api.github.com";
-var REPO_OWNER = "nutterxtech";
-var REPO_NAME = "NUTTER-XMD";
+var REPO_OWNER = process.env["GITHUB_REPO_OWNER"] ?? "BILLNUTTER";
+var REPO_NAME = process.env["GITHUB_REPO_NAME"] ?? "Nutter-MD";
 function requireAdminPassword(req, res, next) {
   const adminPassword = process.env["ADMIN_PASSWORD"];
   if (!adminPassword) {

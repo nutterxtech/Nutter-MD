@@ -16,23 +16,23 @@ NUTTER-XMD is a WhatsApp bot that runs on your own Heroku instance. It supports 
 
 Visit the pairing page and link your WhatsApp number:
 
-**Pairing Page:** [nutter-xmd.vercel.app](https://nutter-xmd.vercel.app)
+**Pairing Page:** [nutter-md-31047d4ad9a9.herokuapp.com](https://nutter-md-31047d4ad9a9.herokuapp.com)
 
 1. Enter your phone number in international format (e.g. `+254712345678`)
-2. You will receive a pair code — enter it in WhatsApp under **Linked Devices**
+2. You will receive a pair code — enter it in WhatsApp under **Linked Devices → Link a Device**
 3. After linking, copy the **Session ID** shown on the page
 
 ### Step 2: Fork this Repo
 
 Click the button below to fork this repository to your GitHub account:
 
-[Fork NUTTER-XMD on GitHub](https://github.com/nutterxtech/NUTTER-XMD/fork)
+[Fork Nutter-MD on GitHub](https://github.com/BILLNUTTER/Nutter-MD/fork)
 
 ### Step 3: Deploy to Heroku
 
 Go to the deploy verification page, enter your GitHub username to confirm your fork, then deploy:
 
-[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://nutter-xmd.vercel.app/deploy)
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://nutter-md-31047d4ad9a9.herokuapp.com/deploy)
 
 You will be asked to fill in:
 
@@ -94,7 +94,7 @@ You will be asked to fill in:
 
 ## Credits
 
-- Developer: [@nutterxtech](https://github.com/nutterxtech)
+- Developer: [@BILLNUTTER](https://github.com/BILLNUTTER)
 - Built with [Baileys](https://github.com/WhiskeySockets/Baileys)
 - Inspired by the WhatsApp MD bot community
 
