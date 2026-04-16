@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: NUTTER-XMD WhatsApp Bot API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: pair
+    description: WhatsApp pairing operations
+  - name: admin
+    description: Admin operations
 paths:
   /healthz:
     get:
@@ -24,7 +28,162 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /pair/request:
+    post:
+      operationId: pairRequest
+      tags: [pair]
+      summary: Request a pairing code
+      description: Accepts a phone number, initializes a Baileys session, returns a pair code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairRequestBody"
+      responses:
+        "200":
+          description: Pair code generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairRequestResponse"
+        "400":
+          description: Invalid phone number
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pair/qr:
+    get:
+      operationId: getPairQr
+      tags: [pair]
+      summary: Get QR code for pairing
+      description: Returns the current QR code as a base64 data URL
+      responses:
+        "200":
+          description: QR code data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairQrResponse"
+        "404":
+          description: No QR code available yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pair/status:
+    get:
+      operationId: getPairStatus
+      tags: [pair]
+      summary: Get pairing status
+      description: Returns the current connection/pairing state
+      responses:
+        "200":
+          description: Current status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairStatusResponse"
+
+  /pair/session:
+    get:
+      operationId: getPairSession
+      tags: [pair]
+      summary: Get session ID after successful pairing
+      description: Returns the base64-encoded session ID once WhatsApp is connected
+      responses:
+        "200":
+          description: Session ID ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairSessionResponse"
+        "202":
+          description: Pairing still in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pair/reset:
+    post:
+      operationId: resetPairing
+      tags: [pair]
+      summary: Reset pairing session
+      description: Clears the current pairing session to start fresh
+      responses:
+        "200":
+          description: Session reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /admin/forks:
+    get:
+      operationId: getAdminForks
+      tags: [admin]
+      summary: Get all repo forks
+      description: Returns list of GitHub users who forked the NUTTER-XMD repo
+      security:
+        - adminPassword: []
+      responses:
+        "200":
+          description: Fork list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForksResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /deploy/verify-fork:
+    get:
+      operationId: verifyFork
+      tags: [admin]
+      summary: Verify GitHub fork
+      description: Checks if a given GitHub username has forked the NUTTER-XMD repo
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Fork verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForkVerifyResponse"
+        "400":
+          description: Missing username
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
+  securitySchemes:
+    adminPassword:
+      type: apiKey
+      in: header
+      name: x-admin-password
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +193,123 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+
+    PairRequestBody:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+          description: Phone number in international format (e.g. +254712345678)
+      required:
+        - phoneNumber
+
+    PairRequestResponse:
+      type: object
+      properties:
+        pairCode:
+          type: string
+          description: 8-character pair code to enter in WhatsApp
+        phoneNumber:
+          type: string
+      required:
+        - pairCode
+        - phoneNumber
+
+    PairQrResponse:
+      type: object
+      properties:
+        qr:
+          type: string
+          description: QR code as base64 data URL (data:image/png;base64,...)
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+        - qr
+
+    PairStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [idle, connecting, qr_ready, pair_code_ready, connected, disconnected]
+        phoneNumber:
+          type: string
+          nullable: true
+      required:
+        - status
+
+    PairSessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          description: Base64-encoded session credentials to paste into Heroku config
+        phoneNumber:
+          type: string
+      required:
+        - sessionId
+        - phoneNumber
+
+    ForkVerifyResponse:
+      type: object
+      properties:
+        forked:
+          type: boolean
+        username:
+          type: string
+        forkUrl:
+          type: string
+          nullable: true
+        deployUrl:
+          type: string
+          nullable: true
+      required:
+        - forked
+        - username
+
+    Fork:
+      type: object
+      properties:
+        id:
+          type: integer
+        login:
+          type: string
+        avatarUrl:
+          type: string
+        profileUrl:
+          type: string
+        forkUrl:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - login
+        - avatarUrl
+        - profileUrl
+        - forkUrl
+        - createdAt
+
+    ForksResponse:
+      type: object
+      properties:
+        forks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Fork"
+        total:
+          type: integer
+      required:
+        - forks
+        - total

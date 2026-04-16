@@ -1,8 +1,24 @@
-# Workspace
+# NUTTER-XMD Workspace
 
-## Overview
+## Project Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+NUTTER-XMD is a WhatsApp multi-device bot platform. It has two deployment targets:
+- **Deployment A** (nutterxtech's Vercel server): Pairing page, deploy page (fork verification + Heroku link), admin dashboard
+- **Deployment B** (each deployer's Heroku): Baileys-based bot engine using SESSION_ID from Heroku config vars
+
+## Architecture
+
+- **Frontend** (`artifacts/nutter-xmd/`): React + Vite, dark theme with WhatsApp green, 3 pages: Pairing (`/`), Deploy (`/deploy`), Admin (`/admin`)
+- **API Server** (`artifacts/api-server/`): Express 5, Baileys bot engine, pair/admin routes, DB-backed group & user settings
+- **Database** (`lib/db/`): PostgreSQL + Drizzle ORM — stores only `group_settings` and `user_settings` (never WhatsApp credentials)
+- **Bot** (`artifacts/api-server/src/bot/`): `botEngine.ts`, `pairingSession.ts`, `session.ts`, `handler.ts`, `commands/`
+
+## Key Design Decisions
+
+- SESSION_ID = base64-encoded Baileys creds JSON — stored as Heroku config var ONLY, never in DB
+- Bot starts automatically on server startup if `SESSION_ID` env var is present
+- `@whiskeysockets/baileys` and `protobufjs` are externalized in esbuild (not bundled) due to dynamic imports
+- `lib/api-zod/src/index.ts` must only export `./generated/api` (not `./generated/types`) — fixed after each codegen run
 
 ## Stack
 
@@ -12,9 +28,10 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
 - **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **WhatsApp**: @whiskeysockets/baileys (multi-device)
+- **Validation**: Zod, drizzle-zod
+- **API codegen**: Orval (from OpenAPI spec at `lib/api-spec/openapi.yaml`)
+- **Build**: esbuild (ESM bundle, Baileys externalized)
 
 ## Key Commands
 
@@ -23,5 +40,12 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
+
+## Environment Variables
+
+- `SESSION_ID` — base64-encoded Baileys credentials (set on Heroku for each deployer's bot instance)
+- `ADMIN_PASSWORD` — password for the admin dashboard
+- `DATABASE_URL` — PostgreSQL connection string
+- `PORT` — server port (auto-assigned by Replit)
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

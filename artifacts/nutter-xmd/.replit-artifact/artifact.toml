@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "NUTTER-XMD"
+version = "1.0.0"
+id = "artifacts/nutter-xmd"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19623
+
+[services.development]
+run = "pnpm --filter @workspace/nutter-xmd run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/nutter-xmd", "run", "build" ]
+publicDir = "artifacts/nutter-xmd/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19623"
+BASE_PATH = "/"

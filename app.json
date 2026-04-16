@@ -1,0 +1,51 @@
+{
+  "name": "NUTTER-XMD",
+  "description": "NUTTER-XMD — A powerful WhatsApp multi-device bot. Deploy your own instance.",
+  "keywords": ["whatsapp", "bot", "nutter-xmd"],
+  "website": "https://github.com/nutterxtech/NUTTER-XMD",
+  "repository": "https://github.com/nutterxtech/NUTTER-XMD",
+  "logo": "https://raw.githubusercontent.com/nutterxtech/NUTTER-XMD/main/assets/logo.png",
+  "success_url": "/",
+  "addons": [
+    {
+      "plan": "heroku-postgresql:essential-0",
+      "as": "DATABASE"
+    }
+  ],
+  "env": {
+    "SESSION_ID": {
+      "description": "Your WhatsApp session ID. Get this from the pairing page at the bot owner's website.",
+      "required": true
+    },
+    "OWNER_NUMBER": {
+      "description": "Your WhatsApp phone number in international format (e.g. 254712345678). This is the bot owner/deployer number.",
+      "required": true
+    },
+    "BOT_NAME": {
+      "description": "The name your bot will display.",
+      "value": "NUTTER-XMD",
+      "required": false
+    },
+    "PREFIX": {
+      "description": "The command prefix character (e.g. . or !). Default is dot (.).",
+      "value": ".",
+      "required": false
+    },
+    "NODE_ENV": {
+      "description": "Node environment.",
+      "value": "production",
+      "required": false
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  }
+}
