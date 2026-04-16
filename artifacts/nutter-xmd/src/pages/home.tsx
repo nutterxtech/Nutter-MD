@@ -299,7 +299,7 @@ export function HomePage() {
                       <img src={qrData.qr} alt="WhatsApp QR Code" className="w-64 h-64" />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      QR refreshes automatically every 20 seconds
+                      QR refreshes automatically every 25 seconds
                     </p>
                     <Button variant="outline" size="sm" className="w-full" onClick={handleReset}>
                       Cancel & Start Over
