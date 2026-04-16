@@ -64122,7 +64122,8 @@ function setActivePairingSocket(sock) {
 function getActivePairingSocket() {
   return activePairingSocket;
 }
-async function startPairingSession(phoneNumber) {
+var MAX_PAIRING_RETRIES = 3;
+async function startPairingSession(phoneNumber, attempt = 0) {
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const fs2 = await import("fs");
   const path3 = await import("path");
@@ -64135,7 +64136,11 @@ async function startPairingSession(phoneNumber) {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome")
+    browser: Browsers.macOS("Safari"),
+    connectTimeoutMs: 6e4,
+    keepAliveIntervalMs: 1e4,
+    defaultQueryTimeoutMs: void 0,
+    syncFullHistory: false
   });
   setActivePairingSocket(sock);
   sock.ev.on("creds.update", async () => {
@@ -64194,13 +64199,27 @@ _Keep this private \u2014 anyone with it can control your bot._`;
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
         resetPairingState();
-      } else if (pairingState.status !== "connected") {
+      } else if (pairingState.status === "connected") {
+        pairingState.status = "disconnected";
+      } else if (attempt < MAX_PAIRING_RETRIES) {
+        const delayMs = (attempt + 1) * 3e3;
+        logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing \u2014 retrying");
+        pairingState.status = "connecting";
+        pairCodeRequested = false;
+        setTimeout(() => {
+          startPairingSession(phoneNumber, attempt + 1).catch((err) => {
+            logger.error({ err }, "Retry attempt failed");
+            pairingState.status = "disconnected";
+          });
+        }, delayMs);
+      } else {
+        logger.error({ attempt }, "All retry attempts exhausted \u2014 marking disconnected");
         pairingState.status = "disconnected";
       }
     }
   });
 }
-async function startQrSession() {
+async function startQrSession(attempt = 0) {
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: QRCode } = await Promise.resolve().then(() => __toESM(require_lib4(), 1));
   const fs2 = await import("fs");
@@ -64214,7 +64233,11 @@ async function startQrSession() {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome")
+    browser: Browsers.macOS("Safari"),
+    connectTimeoutMs: 6e4,
+    keepAliveIntervalMs: 1e4,
+    defaultQueryTimeoutMs: void 0,
+    syncFullHistory: false
   });
   setActivePairingSocket(sock);
   sock.ev.on("creds.update", async () => {
@@ -64273,7 +64296,21 @@ _Keep this private \u2014 anyone with it can control your bot._`;
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
         resetPairingState();
-      } else if (pairingState.status !== "connected") {
+      } else if (pairingState.status === "connected") {
+        pairingState.status = "disconnected";
+      } else if (attempt < MAX_PAIRING_RETRIES) {
+        const delayMs = (attempt + 1) * 3e3;
+        logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp QR connection closed before scanning \u2014 retrying");
+        pairingState.qrDataUrl = null;
+        pairingState.status = "connecting";
+        setTimeout(() => {
+          startQrSession(attempt + 1).catch((err) => {
+            logger.error({ err }, "QR retry attempt failed");
+            pairingState.status = "disconnected";
+          });
+        }, delayMs);
+      } else {
+        logger.error({ attempt }, "All QR retry attempts exhausted \u2014 marking disconnected");
         pairingState.status = "disconnected";
       }
     }
@@ -64312,8 +64349,12 @@ router2.post("/pair/request", async (req, res) => {
   });
 });
 router2.get("/pair/qr", (_req, res) => {
+  if (pairingState.status === "disconnected") {
+    res.status(503).json({ error: "DISCONNECTED", message: "WhatsApp connection failed. Please reset and try again." });
+    return;
+  }
   if (!pairingState.qrDataUrl) {
-    res.status(404).json({ error: "NO_QR", message: "No QR code available. Request pairing first." });
+    res.status(202).json({ qr: null, status: pairingState.status, message: "QR not ready yet, still connecting" });
     return;
   }
   res.json({ qr: pairingState.qrDataUrl, expiresAt: pairingState.qrExpiresAt });

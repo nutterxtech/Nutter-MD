@@ -66,12 +66,14 @@ export function HomePage() {
     },
   });
 
-  const { data: qrData, isLoading: isLoadingQr } = useGetPairQr({
+  const { data: qrData, isLoading: isLoadingQr, isError: isQrError } = useGetPairQr({
     query: {
       enabled: qrActive,
       queryKey: getGetPairQrQueryKey(),
+      // Once QR is visible refresh every 25s; while still connecting check every 2s
       refetchInterval: (query) => query.state.data?.qr ? 25000 : 2000,
-      retry: 3,
+      // Don't retry on error — server signals disconnected via 503; let user reset
+      retry: false,
     },
   });
 
@@ -264,6 +266,7 @@ export function HomePage() {
                     <div className="p-10 bg-muted/30 border border-border rounded-xl flex flex-col items-center gap-4">
                       <Loader2 className="w-10 h-10 text-primary animate-spin" />
                       <p className="text-sm text-muted-foreground">Connecting to WhatsApp and generating your pair code…</p>
+                      <p className="text-xs text-muted-foreground/60">May retry a few times — this is normal</p>
                     </div>
                     <Button variant="outline" size="sm" className="w-full" onClick={handleReset}>
                       Cancel
@@ -325,10 +328,19 @@ export function HomePage() {
                       </p>
                     )}
                   </div>
+                ) : isQrError ? (
+                  <div className="py-10 border border-destructive/40 rounded-lg bg-destructive/5 flex flex-col items-center justify-center gap-4 text-center">
+                    <p className="text-sm font-semibold text-destructive">WhatsApp connection failed</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">
+                      The server couldn't reach WhatsApp after several attempts. Try again — it often succeeds on the next try.
+                    </p>
+                    <Button size="sm" onClick={handleReset}>Try Again</Button>
+                  </div>
                 ) : isLoadingQr || !qrData?.qr ? (
                   <div className="py-12 border border-border rounded-lg bg-muted/10 flex flex-col items-center justify-center gap-4">
                     <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                    <p className="text-sm text-muted-foreground">Generating QR code…</p>
+                    <p className="text-sm text-muted-foreground">Connecting to WhatsApp…</p>
+                    <p className="text-xs text-muted-foreground/60">This may take up to 30 seconds</p>
                     <Button variant="outline" size="sm" className="w-full mt-2" onClick={handleReset}>
                       Cancel
                     </Button>

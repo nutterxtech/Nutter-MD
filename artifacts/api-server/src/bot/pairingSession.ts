@@ -55,7 +55,9 @@ export function getActivePairingSocket() {
   return activePairingSocket;
 }
 
-export async function startPairingSession(phoneNumber: string): Promise<void> {
+const MAX_PAIRING_RETRIES = 3;
+
+export async function startPairingSession(phoneNumber: string, attempt = 0): Promise<void> {
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const fs = await import("fs");
   const path = await import("path");
@@ -71,7 +73,11 @@ export async function startPairingSession(phoneNumber: string): Promise<void> {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome"),
+    browser: Browsers.macOS("Safari"),
+    connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 10000,
+    defaultQueryTimeoutMs: undefined,
+    syncFullHistory: false,
   });
 
   setActivePairingSocket(sock);
@@ -140,14 +146,30 @@ export async function startPairingSession(phoneNumber: string): Promise<void> {
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
         resetPairingState();
-      } else if (pairingState.status !== "connected") {
+      } else if (pairingState.status === "connected") {
+        // Already successfully connected once — just mark disconnected
+        pairingState.status = "disconnected";
+      } else if (attempt < MAX_PAIRING_RETRIES) {
+        // Connection failed before pairing completed — retry with backoff
+        const delayMs = (attempt + 1) * 3000;
+        logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp connection closed before pairing — retrying");
+        pairingState.status = "connecting"; // keep showing "connecting" during retry
+        pairCodeRequested = false;
+        setTimeout(() => {
+          startPairingSession(phoneNumber, attempt + 1).catch((err) => {
+            logger.error({ err }, "Retry attempt failed");
+            pairingState.status = "disconnected";
+          });
+        }, delayMs);
+      } else {
+        logger.error({ attempt }, "All retry attempts exhausted — marking disconnected");
         pairingState.status = "disconnected";
       }
     }
   });
 }
 
-export async function startQrSession(): Promise<void> {
+export async function startQrSession(attempt = 0): Promise<void> {
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: QRCode } = await import("qrcode");
   const fs = await import("fs");
@@ -164,7 +186,11 @@ export async function startQrSession(): Promise<void> {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome"),
+    browser: Browsers.macOS("Safari"),
+    connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 10000,
+    defaultQueryTimeoutMs: undefined,
+    syncFullHistory: false,
   });
 
   setActivePairingSocket(sock);
@@ -233,7 +259,21 @@ export async function startQrSession(): Promise<void> {
       if (reason === DisconnectReason.loggedOut) {
         pairingState.status = "disconnected";
         resetPairingState();
-      } else if (pairingState.status !== "connected") {
+      } else if (pairingState.status === "connected") {
+        pairingState.status = "disconnected";
+      } else if (attempt < MAX_PAIRING_RETRIES) {
+        const delayMs = (attempt + 1) * 3000;
+        logger.warn({ attempt: attempt + 1, delayMs }, "WhatsApp QR connection closed before scanning — retrying");
+        pairingState.qrDataUrl = null; // clear stale QR so UI shows "connecting" again
+        pairingState.status = "connecting";
+        setTimeout(() => {
+          startQrSession(attempt + 1).catch((err) => {
+            logger.error({ err }, "QR retry attempt failed");
+            pairingState.status = "disconnected";
+          });
+        }, delayMs);
+      } else {
+        logger.error({ attempt }, "All QR retry attempts exhausted — marking disconnected");
         pairingState.status = "disconnected";
       }
     }

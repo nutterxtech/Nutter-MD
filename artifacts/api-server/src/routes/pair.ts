@@ -43,8 +43,13 @@ router.post("/pair/request", async (req, res) => {
 });
 
 router.get("/pair/qr", (_req, res) => {
+  if (pairingState.status === "disconnected") {
+    res.status(503).json({ error: "DISCONNECTED", message: "WhatsApp connection failed. Please reset and try again." });
+    return;
+  }
   if (!pairingState.qrDataUrl) {
-    res.status(404).json({ error: "NO_QR", message: "No QR code available. Request pairing first." });
+    // Still connecting — tell the client to keep polling
+    res.status(202).json({ qr: null, status: pairingState.status, message: "QR not ready yet, still connecting" });
     return;
   }
   res.json({ qr: pairingState.qrDataUrl, expiresAt: pairingState.qrExpiresAt });
