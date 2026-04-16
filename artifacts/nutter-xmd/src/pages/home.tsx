@@ -315,20 +315,22 @@ export function HomePage() {
       {showSessionStep && (
         <Card className="border-primary/20 shadow-lg shadow-primary/5 bg-card/50 backdrop-blur-sm animate-in fade-in duration-300">
           <CardHeader className="pb-4">
-            <CardTitle>Step 2 — Get Session ID</CardTitle>
+            <CardTitle>Step 2 — Session ID Sent to You</CardTitle>
             <CardDescription>
-              After you've linked your device in WhatsApp, click the button below to retrieve your
-              Session ID.
+              Your SESSION_ID has been sent directly to your WhatsApp. Check your messages from the
+              linked number — the bot will have messaged you with the full ID and Heroku setup
+              instructions. If you didn't receive it, use the button below to retrieve it manually.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button
               className="w-full font-bold"
+              variant="outline"
               onClick={fetchSessionId}
               disabled={isFetchingSession}
             >
               {isFetchingSession ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              {isFetchingSession ? "Checking…" : "Get My Session ID"}
+              {isFetchingSession ? "Checking…" : "Didn't receive it? Get Session ID"}
             </Button>
             {sessionError && (
               <p className="text-sm text-destructive text-center">{sessionError}</p>
