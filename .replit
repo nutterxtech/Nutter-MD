@@ -46,3 +46,6 @@ externalPort = 3001
 [[ports]]
 localPort = 19625
 externalPort = 3003
+
+[nix]
+packages = ["cod"]
