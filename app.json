@@ -18,11 +18,7 @@
       "required": true
     },
     "OWNER_NUMBER": {
-      "description": "Your WhatsApp phone number in international format (e.g. 254712345678). This is the bot owner/deployer number.",
-      "required": true
-    },
-    "ADMIN_PASSWORD": {
-      "description": "Password for the admin dashboard. Required to access /admin. Choose a strong password.",
+      "description": "Your WhatsApp phone number in international format (e.g. 254712345678). This is the number that will be the bot owner.",
       "required": true
     },
     "DATABASE_URL": {
