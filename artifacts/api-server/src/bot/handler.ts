@@ -1,7 +1,7 @@
-import type { WASocket, proto } from "@whiskeysockets/baileys";
-import type { GroupSettings } from "@workspace/db";
+import type { WASocket, WAMessageKey, proto } from "@whiskeysockets/baileys";
 import { db } from "@workspace/db";
 import { groupSettingsTable, userSettingsTable } from "@workspace/db/schema";
+import type { GroupSettings } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
@@ -26,9 +26,10 @@ import {
 } from "./commands/group";
 
 const BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
-const URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/gi;
+const URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
 
 export interface CommandContext {
+  jid: string;
   isOwner: boolean;
   isSenderGroupAdmin: boolean;
   isBotGroupAdmin: boolean;
@@ -36,6 +37,8 @@ export interface CommandContext {
 }
 
 export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
+  if (!msg.key) return;
+
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
   const defaultPrefix = process.env["PREFIX"] || ".";
 
@@ -82,21 +85,22 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
         if (participantNumber === botNumber && isAdmin) isBotGroupAdmin = true;
       }
 
+      const msgKey = msg.key as WAMessageKey;
       if (groupSettings) {
         if (groupSettings.antilink && !isOwner && !isSenderGroupAdmin && URL_REGEX.test(body)) {
-          await sock.sendMessage(jid, { delete: msg.key });
+          await sock.sendMessage(jid, { delete: msgKey });
           await sock.sendMessage(jid, { text: "Links are not allowed in this group." });
           return;
         }
         if (groupSettings.antibadword && !isOwner && BAD_WORDS.some((w) => body.toLowerCase().includes(w))) {
-          await sock.sendMessage(jid, { delete: msg.key });
+          await sock.sendMessage(jid, { delete: msgKey });
           await sock.sendMessage(jid, { text: "Bad language is not allowed." });
           return;
         }
         if (groupSettings.antimention && !isOwner && !isSenderGroupAdmin) {
           const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
           if (mentions.length >= 5) {
-            await sock.sendMessage(jid, { delete: msg.key });
+            await sock.sendMessage(jid, { delete: msgKey });
             await sock.sendMessage(jid, { text: "Mass mentions are not allowed." });
             return;
           }
@@ -119,7 +123,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     // Non-fatal: continue if DB check fails
   }
 
-  const ctx: CommandContext = { isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings };
+  const ctx: CommandContext = { jid, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings };
   const commandText = body.slice(prefix.length).trim();
   const [command, ...args] = commandText.split(" ");
   const cmd = command.toLowerCase();

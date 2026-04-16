@@ -20,153 +20,153 @@ async function updateGroupSetting(groupId: string, update: Partial<typeof groupS
 
 export async function handleKick(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "This command requires bot admin privileges." });
+    await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can kick members." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can kick members." });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Tag the user to kick: .kick @user" });
+    await sock.sendMessage(ctx.jid, { text: "Tag the user to kick: .kick @user" });
     return;
   }
   try {
-    await sock.groupParticipantsUpdate(msg.key.remoteJid!, mentioned, "remove");
-    await sock.sendMessage(msg.key.remoteJid!, { text: `Removed ${mentioned.length} member(s).` });
+    await sock.groupParticipantsUpdate(ctx.jid, mentioned, "remove");
+    await sock.sendMessage(ctx.jid, { text: `Removed ${mentioned.length} member(s).` });
   } catch (err) {
     logger.error({ err }, "Failed to kick");
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Failed to kick. Make sure I am an admin." });
+    await sock.sendMessage(ctx.jid, { text: "Failed to kick. Make sure I am an admin." });
   }
 }
 
-export async function handleAdd(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
+export async function handleAdd(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "This command requires bot admin privileges." });
+    await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can add members." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can add members." });
     return;
   }
   const number = args[0]?.replace(/[^0-9]/g, "");
   if (!number) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Provide number: .add +254712345678" });
+    await sock.sendMessage(ctx.jid, { text: "Provide number: .add +254712345678" });
     return;
   }
-  const jid = number + "@s.whatsapp.net";
+  const memberJid = number + "@s.whatsapp.net";
   try {
-    await sock.groupParticipantsUpdate(msg.key.remoteJid!, [jid], "add");
-    await sock.sendMessage(msg.key.remoteJid!, { text: `Added ${number} to the group.` });
+    await sock.groupParticipantsUpdate(ctx.jid, [memberJid], "add");
+    await sock.sendMessage(ctx.jid, { text: `Added ${number} to the group.` });
   } catch (err) {
     logger.error({ err }, "Failed to add");
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Failed to add. The number may not be on WhatsApp." });
+    await sock.sendMessage(ctx.jid, { text: "Failed to add. The number may not be on WhatsApp." });
   }
 }
 
 export async function handlePromote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Bot must be admin to use this command." });
+    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use this command." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can promote members." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can promote members." });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Tag a user: .promote @user" });
+    await sock.sendMessage(ctx.jid, { text: "Tag a user: .promote @user" });
     return;
   }
-  await sock.groupParticipantsUpdate(msg.key.remoteJid!, mentioned, "promote");
-  await sock.sendMessage(msg.key.remoteJid!, { text: "Promoted successfully." });
+  await sock.groupParticipantsUpdate(ctx.jid, mentioned, "promote");
+  await sock.sendMessage(ctx.jid, { text: "Promoted successfully." });
 }
 
 export async function handleDemote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Bot must be admin to use this command." });
+    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use this command." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can demote members." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can demote members." });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Tag a user: .demote @user" });
+    await sock.sendMessage(ctx.jid, { text: "Tag a user: .demote @user" });
     return;
   }
-  await sock.groupParticipantsUpdate(msg.key.remoteJid!, mentioned, "demote");
-  await sock.sendMessage(msg.key.remoteJid!, { text: "Demoted successfully." });
+  await sock.groupParticipantsUpdate(ctx.jid, mentioned, "demote");
+  await sock.sendMessage(ctx.jid, { text: "Demoted successfully." });
 }
 
-export async function handleAntilink(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
+export async function handleAntilink(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
     return;
   }
   const state = args[0]?.toLowerCase() === "on";
-  await ensureGroupSettings(msg.key.remoteJid!);
-  await updateGroupSetting(msg.key.remoteJid!, { antilink: state });
-  await sock.sendMessage(msg.key.remoteJid!, { text: `Antilink is now ${state ? "ON" : "OFF"}.` });
+  await ensureGroupSettings(ctx.jid);
+  await updateGroupSetting(ctx.jid, { antilink: state });
+  await sock.sendMessage(ctx.jid, { text: `Antilink is now ${state ? "ON" : "OFF"}.` });
 }
 
-export async function handleAntibadword(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
+export async function handleAntibadword(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
     return;
   }
   const state = args[0]?.toLowerCase() === "on";
-  await ensureGroupSettings(msg.key.remoteJid!);
-  await updateGroupSetting(msg.key.remoteJid!, { antibadword: state });
-  await sock.sendMessage(msg.key.remoteJid!, { text: `Antibadword is now ${state ? "ON" : "OFF"}.` });
+  await ensureGroupSettings(ctx.jid);
+  await updateGroupSetting(ctx.jid, { antibadword: state });
+  await sock.sendMessage(ctx.jid, { text: `Antibadword is now ${state ? "ON" : "OFF"}.` });
 }
 
-export async function handleAntimention(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
+export async function handleAntimention(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
     return;
   }
   const state = args[0]?.toLowerCase() === "on";
-  await ensureGroupSettings(msg.key.remoteJid!);
-  await updateGroupSetting(msg.key.remoteJid!, { antimention: state });
-  await sock.sendMessage(msg.key.remoteJid!, { text: `Antimention is now ${state ? "ON" : "OFF"}.` });
+  await ensureGroupSettings(ctx.jid);
+  await updateGroupSetting(ctx.jid, { antimention: state });
+  await sock.sendMessage(ctx.jid, { text: `Antimention is now ${state ? "ON" : "OFF"}.` });
 }
 
 export async function handleBan(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only admins can ban users." });
+    await sock.sendMessage(ctx.jid, { text: "Only admins can ban users." });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Tag a user: .ban @user" });
+    await sock.sendMessage(ctx.jid, { text: "Tag a user: .ban @user" });
     return;
   }
 
-  for (const jid of mentioned) {
-    await db.insert(userSettingsTable).values({ userId: jid, isBanned: true })
+  for (const userId of mentioned) {
+    await db.insert(userSettingsTable).values({ userId, isBanned: true })
       .onConflictDoUpdate({ target: userSettingsTable.userId, set: { isBanned: true, updatedAt: new Date() } });
   }
-  await sock.sendMessage(msg.key.remoteJid!, { text: `Banned ${mentioned.length} user(s).` });
+  await sock.sendMessage(ctx.jid, { text: `Banned ${mentioned.length} user(s).` });
 }
 
 export async function handleUnban(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only admins can unban users." });
+    await sock.sendMessage(ctx.jid, { text: "Only admins can unban users." });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Tag a user: .unban @user" });
+    await sock.sendMessage(ctx.jid, { text: "Tag a user: .unban @user" });
     return;
   }
 
-  for (const jid of mentioned) {
-    await db.update(userSettingsTable).set({ isBanned: false, updatedAt: new Date() }).where(eq(userSettingsTable.userId, jid));
+  for (const userId of mentioned) {
+    await db.update(userSettingsTable).set({ isBanned: false, updatedAt: new Date() }).where(eq(userSettingsTable.userId, userId));
   }
-  await sock.sendMessage(msg.key.remoteJid!, { text: `Unbanned ${mentioned.length} user(s).` });
+  await sock.sendMessage(ctx.jid, { text: `Unbanned ${mentioned.length} user(s).` });
 }
 
 export { ensureGroupSettings };

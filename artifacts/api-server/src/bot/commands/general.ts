@@ -2,23 +2,23 @@ import type { WASocket, proto } from "@whiskeysockets/baileys";
 import type { CommandContext } from "../handler";
 import { logger } from "../../lib/logger";
 
-export async function handlePing(sock: WASocket, msg: proto.IWebMessageInfo, _ctx: CommandContext) {
+export async function handlePing(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const start = Date.now();
-  await sock.sendMessage(msg.key.remoteJid!, { text: "🏓 Pong!" });
+  await sock.sendMessage(ctx.jid, { text: "🏓 Pong!" });
   const latency = Date.now() - start;
-  await sock.sendMessage(msg.key.remoteJid!, { text: `*Latency:* ${latency}ms` });
+  await sock.sendMessage(ctx.jid, { text: `*Latency:* ${latency}ms` });
 }
 
-export async function handleAlive(sock: WASocket, msg: proto.IWebMessageInfo, _ctx: CommandContext) {
+export async function handleAlive(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const uptime = process.uptime();
   const hours = Math.floor(uptime / 3600);
   const minutes = Math.floor((uptime % 3600) / 60);
   const seconds = Math.floor(uptime % 60);
   const text = `*NUTTER-XMD* ⚡\n\n*Status:* Online\n*Uptime:* ${hours}h ${minutes}m ${seconds}s\n*Version:* 1.0.0`;
-  await sock.sendMessage(msg.key.remoteJid!, { text });
+  await sock.sendMessage(ctx.jid, { text });
 }
 
-export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, _ctx: CommandContext, prefix: string) {
+export async function handleMenu(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
   const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
   const menu = `*${botName}* — Command Menu\n\n` +
     `*General*\n` +
@@ -38,17 +38,17 @@ export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, _ct
     `${prefix}antimention on/off — Block mass mentions\n` +
     `${prefix}ban @user — Ban user from bot\n` +
     `${prefix}unban @user — Unban user`;
-  await sock.sendMessage(msg.key.remoteJid!, { text: menu });
+  await sock.sendMessage(ctx.jid, { text: menu });
 }
 
-export async function handleOwner(sock: WASocket, msg: proto.IWebMessageInfo, _ctx: CommandContext) {
+export async function handleOwner(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const ownerNumber = process.env["OWNER_NUMBER"] || "";
   if (!ownerNumber) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Owner number not configured." });
+    await sock.sendMessage(ctx.jid, { text: "Owner number not configured." });
     return;
   }
   const digits = ownerNumber.replace(/[^0-9]/g, "");
-  await sock.sendMessage(msg.key.remoteJid!, {
+  await sock.sendMessage(ctx.jid, {
     contacts: {
       displayName: "NUTTER-XMD Owner",
       contacts: [{ vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:NUTTER-XMD Owner\nTEL;type=CELL;type=VOICE;waid=${digits}:+${digits}\nEND:VCARD`, displayName: "NUTTER-XMD Owner" }]
@@ -56,7 +56,7 @@ export async function handleOwner(sock: WASocket, msg: proto.IWebMessageInfo, _c
   });
 }
 
-export async function handleSettings(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
+export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
   const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
   const ownerNumber = process.env["OWNER_NUMBER"] || "Not set";
 
@@ -66,22 +66,22 @@ export async function handleSettings(sock: WASocket, msg: proto.IWebMessageInfo,
   }
 
   const text = `*${botName} Settings*\n\nPrefix: ${prefix}\nOwner: ${ownerNumber}${groupInfo}`;
-  await sock.sendMessage(msg.key.remoteJid!, { text });
+  await sock.sendMessage(ctx.jid, { text });
 }
 
-export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, _ctx: CommandContext) {
+export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
   if (!quoted) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Reply to an image with .sticker to convert it to a sticker." });
+    await sock.sendMessage(ctx.jid, { text: "Reply to an image with .sticker to convert it to a sticker." });
     return;
   }
 
   const imageMsg = quoted.imageMessage;
   if (!imageMsg) {
     if (quoted.videoMessage) {
-      await sock.sendMessage(msg.key.remoteJid!, { text: "Video stickers require ffmpeg. Currently only static image stickers are supported — reply to an image." });
+      await sock.sendMessage(ctx.jid, { text: "Video stickers require ffmpeg. Currently only static image stickers are supported — reply to an image." });
     } else {
-      await sock.sendMessage(msg.key.remoteJid!, { text: "Only images can be converted to stickers. Reply to an image." });
+      await sock.sendMessage(ctx.jid, { text: "Only images can be converted to stickers. Reply to an image." });
     }
     return;
   }
@@ -98,7 +98,7 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
     const buffer = Buffer.concat(chunks);
 
     if (!buffer || buffer.length === 0) {
-      await sock.sendMessage(msg.key.remoteJid!, { text: "Could not download the image. Please try again." });
+      await sock.sendMessage(ctx.jid, { text: "Could not download the image. Please try again." });
       return;
     }
 
@@ -107,20 +107,20 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
       .webp({ quality: 80 })
       .toBuffer();
 
-    await sock.sendMessage(msg.key.remoteJid!, {
+    await sock.sendMessage(ctx.jid, {
       sticker: webpBuffer,
     });
   } catch (err) {
     logger.error({ err }, "Sticker conversion failed");
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Sticker conversion failed. Please try again with a different image." });
+    await sock.sendMessage(ctx.jid, { text: "Sticker conversion failed. Please try again with a different image." });
   }
 }
 
-export async function handleRestart(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
+export async function handleRestart(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(msg.key.remoteJid!, { text: "Only the bot owner can restart." });
+    await sock.sendMessage(ctx.jid, { text: "Only the bot owner can restart." });
     return;
   }
-  await sock.sendMessage(msg.key.remoteJid!, { text: "Restarting..." });
+  await sock.sendMessage(ctx.jid, { text: "Restarting..." });
   setTimeout(() => process.exit(0), 1000);
 }

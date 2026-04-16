@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -6,7 +6,7 @@ const GITHUB_API_BASE = "https://api.github.com";
 const REPO_OWNER = "nutterxtech";
 const REPO_NAME = "NUTTER-XMD";
 
-function requireAdminPassword(req: Parameters<Parameters<typeof router.use>[0]>[0], res: Parameters<Parameters<typeof router.use>[0]>[1], next: Parameters<Parameters<typeof router.use>[0]>[2]) {
+function requireAdminPassword(req: Request, res: Response, next: NextFunction) {
   const adminPassword = process.env["ADMIN_PASSWORD"];
   if (!adminPassword) {
     res.status(503).json({ error: "MISCONFIGURED", message: "ADMIN_PASSWORD environment variable is not set. Configure it to enable the admin dashboard." });
@@ -20,29 +20,49 @@ function requireAdminPassword(req: Parameters<Parameters<typeof router.use>[0]>[
   next();
 }
 
-router.get("/admin/forks", requireAdminPassword, async (_req, res) => {
-  try {
-    const response = await fetch(`${GITHUB_API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/forks?per_page=100&sort=newest`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "NUTTER-XMD-Bot",
-        ...(process.env["GITHUB_TOKEN"] ? { Authorization: `Bearer ${process.env["GITHUB_TOKEN"]}` } : {}),
-      },
-    });
+type GithubFork = {
+  id: number;
+  owner: { login: string; avatar_url: string; html_url: string };
+  html_url: string;
+  created_at: string;
+};
+
+async function fetchAllForks(): Promise<GithubFork[]> {
+  const githubHeaders = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "NUTTER-XMD-Bot",
+    ...(process.env["GITHUB_TOKEN"] ? { Authorization: `Bearer ${process.env["GITHUB_TOKEN"]}` } : {}),
+  };
+
+  const all: GithubFork[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const response = await fetch(
+      `${GITHUB_API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/forks?per_page=${perPage}&page=${page}&sort=newest`,
+      { headers: githubHeaders },
+    );
 
     if (!response.ok) {
-      const err = await response.text();
-      logger.error({ status: response.status, err }, "GitHub API error");
-      res.status(502).json({ error: "GITHUB_ERROR", message: "Failed to fetch forks from GitHub" });
-      return;
+      const errText = await response.text();
+      logger.error({ status: response.status, errText }, "GitHub API error fetching forks");
+      throw Object.assign(new Error("GitHub API error"), { status: response.status });
     }
 
-    const data = await response.json() as Array<{
-      id: number;
-      owner: { login: string; avatar_url: string; html_url: string };
-      html_url: string;
-      created_at: string;
-    }>;
+    const page_data = await response.json() as GithubFork[];
+    all.push(...page_data);
+
+    if (page_data.length < perPage) break;
+    page++;
+  }
+
+  return all;
+}
+
+router.get("/admin/forks", requireAdminPassword, async (_req, res) => {
+  try {
+    const data = await fetchAllForks();
 
     const forks = data.map((fork) => ({
       id: fork.id,
@@ -56,7 +76,14 @@ router.get("/admin/forks", requireAdminPassword, async (_req, res) => {
     res.json({ forks, total: forks.length });
   } catch (err) {
     logger.error({ err }, "Error fetching forks");
-    res.status(500).json({ error: "SERVER_ERROR", message: "Internal server error" });
+    const status = (err instanceof Error && "status" in err && typeof (err as { status?: unknown }).status === "number")
+      ? (err as { status: number }).status
+      : 500;
+    if (status >= 500 && status < 600) {
+      res.status(502).json({ error: "GITHUB_ERROR", message: "Failed to fetch forks from GitHub" });
+    } else {
+      res.status(500).json({ error: "SERVER_ERROR", message: "Internal server error" });
+    }
   }
 });
 
