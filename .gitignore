@@ -47,3 +47,8 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# WhatsApp bot session files (contain sensitive credentials)
+.pairing-session/
+auth_info_baileys/
+*.session
