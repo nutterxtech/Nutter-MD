@@ -1,7 +1,11 @@
 # See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# compiled output
+# compiled output — except artifact dist dirs which are committed for deployment
 dist
+!artifacts/nutter-xmd/dist/
+!artifacts/nutter-xmd/dist/**
+!artifacts/api-server/dist/
+!artifacts/api-server/dist/**
 tmp
 out-tsc
 *.tsbuildinfo
