@@ -136,3 +136,75 @@ export async function startPairingSession(phoneNumber: string): Promise<string> 
     }, 3000);
   });
 }
+
+export async function startQrSession(): Promise<void> {
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import("@whiskeysockets/baileys");
+  const { default: QRCode } = await import("qrcode");
+  const fs = await import("fs");
+  const path = await import("path");
+
+  const sessionDir = path.join(process.cwd(), ".pairing-session");
+  if (fs.existsSync(sessionDir)) {
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(sessionDir, { recursive: true });
+
+  resetPairingState();
+  pairingState.status = "connecting";
+
+  const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: false,
+    browser: ["NUTTER-XMD", "Chrome", "1.0.0"],
+  });
+
+  setActivePairingSocket(sock);
+
+  sock.ev.on("creds.update", async () => {
+    await saveCreds();
+    try {
+      const files = fs.readdirSync(sessionDir);
+      const fileMap: SessionFileMap = {};
+      for (const file of files) {
+        const content = fs.readFileSync(path.join(sessionDir, file), "utf-8");
+        fileMap[file] = JSON.parse(content);
+      }
+      pairingState.sessionId = encodeSessionToBase64(fileMap);
+    } catch (err) {
+      logger.error({ err }, "Failed to serialize credentials");
+    }
+  });
+
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      try {
+        const dataUrl = await QRCode.toDataURL(qr);
+        pairingState.qrDataUrl = dataUrl;
+        pairingState.qrExpiresAt = new Date(Date.now() + 60000);
+        pairingState.status = "qr_ready";
+        logger.info("QR code generated for pairing");
+      } catch (err) {
+        logger.error({ err }, "Failed to generate QR code");
+      }
+    }
+
+    if (connection === "open") {
+      pairingState.status = "connected";
+      logger.info("WhatsApp QR session connected");
+    }
+
+    if (connection === "close") {
+      const reason = (lastDisconnect?.error as import("@hapi/boom").Boom)?.output?.statusCode;
+      if (reason === DisconnectReason.loggedOut) {
+        pairingState.status = "disconnected";
+        resetPairingState();
+      } else if (pairingState.status !== "connected") {
+        pairingState.status = "disconnected";
+      }
+    }
+  });
+}

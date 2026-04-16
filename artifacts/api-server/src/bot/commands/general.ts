@@ -87,17 +87,22 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
   }
 
   try {
-    const { downloadMediaMessage } = await import("@whiskeysockets/baileys");
+    const { downloadContentFromMessage } = await import("@whiskeysockets/baileys");
     const { default: sharp } = await import("sharp");
 
-    const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger: logger as Parameters<typeof downloadMediaMessage>[2]["logger"] });
+    const stream = await downloadContentFromMessage(imageMsg, "image");
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer);
+    }
+    const buffer = Buffer.concat(chunks);
 
     if (!buffer || buffer.length === 0) {
       await sock.sendMessage(msg.key.remoteJid!, { text: "Could not download the image. Please try again." });
       return;
     }
 
-    const webpBuffer = await sharp(buffer as Buffer)
+    const webpBuffer = await sharp(buffer)
       .resize(512, 512, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .webp({ quality: 80 })
       .toBuffer();

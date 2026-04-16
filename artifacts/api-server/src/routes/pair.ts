@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { pairingState, startPairingSession, resetPairingState, getActivePairingSocket } from "../bot/pairingSession";
+import { pairingState, startPairingSession, startQrSession, resetPairingState, getActivePairingSocket } from "../bot/pairingSession";
 import { logger } from "../lib/logger";
 import { z } from "zod";
 
@@ -52,6 +52,23 @@ router.get("/pair/session", (_req, res) => {
     sessionId: pairingState.sessionId,
     phoneNumber: pairingState.phoneNumber,
   });
+});
+
+router.post("/pair/start-qr", async (_req, res) => {
+  if (pairingState.status === "connected") {
+    res.status(400).json({ error: "ALREADY_CONNECTED", message: "A session is already connected. Reset first." });
+    return;
+  }
+
+  try {
+    startQrSession().catch((err) => {
+      logger.error({ err }, "QR session error");
+    });
+    res.json({ status: "connecting", message: "QR session starting. Poll /pair/qr for the code." });
+  } catch (err) {
+    logger.error({ err }, "Failed to start QR session");
+    res.status(500).json({ error: "QR_FAILED", message: "Failed to start QR session. Try again." });
+  }
 });
 
 router.post("/pair/reset", async (_req, res) => {

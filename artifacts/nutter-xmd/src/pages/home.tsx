@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useMutation } from "@tanstack/react-query";
 import { Copy, RefreshCw, QrCode, Hash, Smartphone, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { ApiError } from "@workspace/api-client-react";
 import { 
@@ -40,6 +41,16 @@ export function HomePage() {
 
   const pairRequest = usePairRequest();
   const resetPairing = useResetPairing();
+
+  const startQrSession = useMutation({
+    mutationFn: () => fetch("/api/pair/start-qr", { method: "POST" }).then(async (r) => {
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({})) as { message?: string };
+        throw new Error(data.message || `HTTP ${r.status}`);
+      }
+      return r.json();
+    }),
+  });
 
   // Query status repeatedly while pairing is active
   const { data: statusData, isLoading: isLoadingStatus } = useGetPairStatus({
@@ -248,12 +259,28 @@ export function HomePage() {
                   <div className="py-12 border-2 border-dashed border-border rounded-lg bg-muted/10 space-y-4">
                     <QrCode className="w-12 h-12 mx-auto text-muted-foreground" />
                     <div className="space-y-1">
-                      <p className="text-sm font-medium">QR Mode Selected</p>
-                      <p className="text-xs text-muted-foreground">This feature requires initializing the session in QR mode first.</p>
+                      <p className="text-sm font-medium">QR Code Pairing</p>
+                      <p className="text-xs text-muted-foreground">Scan the QR code with WhatsApp Linked Devices to link your account.</p>
                     </div>
-                    <Button variant="secondary" onClick={() => toast({ title: "Note", description: "Use Pair Code mode for reliable multi-device linking" })}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        startQrSession.mutate();
+                      }}
+                      disabled={startQrSession.isPending}
+                    >
+                      {startQrSession.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       Start QR Session
                     </Button>
+                    {startQrSession.isError && (
+                      <p className="text-xs text-destructive">{startQrSession.error instanceof Error ? startQrSession.error.message : "Failed to start QR session"}</p>
+                    )}
+                  </div>
+                ) : mode === "qr" && status === "connecting" ? (
+                  <div className="py-12 border border-border rounded-lg bg-muted/10 flex flex-col items-center justify-center gap-4">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                    <p className="text-sm text-muted-foreground">Generating QR code...</p>
+                    <Button variant="outline" className="w-full mt-4" onClick={handleReset}>Cancel</Button>
                   </div>
                 ) : mode === "qr" && qrData?.qr ? (
                   <div className="space-y-4 animate-in zoom-in duration-300">
