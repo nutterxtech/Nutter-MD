@@ -3,7 +3,7 @@
 ## Project Overview
 
 NUTTER-XMD is a WhatsApp multi-device bot platform. It has two deployment targets:
-- **Deployment A** (nutterxtech's Vercel server): Pairing page, deploy page (fork verification + Heroku link), admin dashboard
+- **Deployment A** (admin's Render.com web service): Pairing page, deploy page (fork verification), admin dashboard — Express serves both API and built React frontend
 - **Deployment B** (each deployer's Heroku): Baileys-based bot engine using SESSION_ID from Heroku config vars
 
 ## Architecture
@@ -47,5 +47,20 @@ NUTTER-XMD is a WhatsApp multi-device bot platform. It has two deployment target
 - `ADMIN_PASSWORD` — password for the admin dashboard
 - `DATABASE_URL` — PostgreSQL connection string
 - `PORT` — server port (auto-assigned by Replit)
+
+## Deployment
+
+### Deployment A — Admin's Render.com web service
+`render.yaml` at the repo root configures a single Render web service that:
+1. Installs deps, builds the React frontend (`artifacts/nutter-xmd/dist/public`), then builds the Express API bundle
+2. Runs `node artifacts/api-server/dist/index.mjs` — Express serves `/api/*` routes and static React files at `/*`
+3. Handles SPA routing via a wildcard `GET *` → `index.html` fallback (production only)
+
+Required env vars on Render: `ADMIN_PASSWORD` (set as secret in Render dashboard).  
+Do NOT set `SESSION_ID` on Render — bot engine must not start on the admin server.
+
+### Deployment B — Deployer's Heroku dyno
+Procfile: `worker: node --enable-source-maps artifacts/api-server/dist/bot-standalone.mjs`  
+Required Heroku config vars: `SESSION_ID`, `OWNER_NUMBER`, `DATABASE_URL`, `BOT_NAME`, `PREFIX`.
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
