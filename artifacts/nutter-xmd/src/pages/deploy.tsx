@@ -54,7 +54,7 @@ export function DeployPage() {
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20 text-primary font-bold">1</div>
               <CardTitle>Verify Fork</CardTitle>
             </div>
-            <CardDescription className="ml-10">You must fork the NUTTER-XMD repository before deploying</CardDescription>
+            <CardDescription className="ml-10">You must fork the Nutter-MD repository before deploying</CardDescription>
           </CardHeader>
           <CardContent className="ml-10">
             <Form {...form}>
@@ -101,9 +101,9 @@ export function DeployPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Fork Not Found</AlertTitle>
                 <AlertDescription className="space-y-4 mt-2">
-                  <p>User <strong>{verificationData.username}</strong> has not forked the NUTTER-XMD repository.</p>
+                  <p>User <strong>{verificationData.username}</strong> has not forked the Nutter-MD repository.</p>
                   <Button variant="outline" size="sm" asChild className="w-full sm:w-auto border-destructive/30 hover:bg-destructive/20">
-                    <a href="https://github.com/nutterxtech/NUTTER-XMD" target="_blank" rel="noreferrer">
+                    <a href="https://github.com/nutterxtech/Nutter-MD" target="_blank" rel="noreferrer">
                       <Github className="mr-2 h-4 w-4" /> Go to Repository to Fork
                     </a>
                   </Button>
@@ -144,7 +144,7 @@ export function DeployPage() {
             
             <Button size="lg" className="w-full font-bold h-14 text-lg bg-[#430098] hover:bg-[#430098]/90 text-white border-0" asChild>
               <a 
-                href={verificationData?.deployUrl || `https://heroku.com/deploy?template=https://github.com/${username}/NUTTER-XMD`} 
+                href={verificationData?.deployUrl || `https://heroku.com/deploy?template=https://github.com/${username}/Nutter-MD`} 
                 target="_blank" 
                 rel="noreferrer"
               >

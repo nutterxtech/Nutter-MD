@@ -2,8 +2,8 @@
   "name": "NUTTER-XMD",
   "description": "NUTTER-XMD — A powerful WhatsApp multi-device bot. Deploy your own instance.",
   "keywords": ["whatsapp", "bot", "nutter-xmd"],
-  "website": "https://github.com/nutterxtech/NUTTER-XMD",
-  "repository": "https://github.com/nutterxtech/NUTTER-XMD",
+  "website": "https://github.com/nutterxtech/Nutter-MD",
+  "repository": "https://github.com/nutterxtech/Nutter-MD",
   "logo": "https://raw.githubusercontent.com/nutterxtech/NUTTER-XMD/main/assets/logo.png",
   "success_url": "/",
   "addons": [
