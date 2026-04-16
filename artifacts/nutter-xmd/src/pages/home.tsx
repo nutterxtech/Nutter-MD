@@ -67,8 +67,8 @@ export function HomePage() {
     query: {
       enabled: qrActive,
       queryKey: getGetPairQrQueryKey(),
-      refetchInterval: 20000,
-      retry: false,
+      refetchInterval: (query) => query.state.data?.qr ? 25000 : 2000,
+      retry: 3,
     },
   });
 
