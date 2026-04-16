@@ -64207,13 +64207,22 @@ async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest
       if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info({ phoneNumber }, "WhatsApp pairing session connected");
-      if (pairingState.sessionId) {
+      let sessionId = pairingState.sessionId;
+      if (!sessionId) {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (myGeneration !== currentGeneration) return;
+          sessionId = pairingState.sessionId;
+          if (sessionId) break;
+        }
+      }
+      if (sessionId) {
         const jid = `${cleanNumber}@s.whatsapp.net`;
         const msg = `*NUTTER-XMD \u2014 Your Session ID*
 
 Your WhatsApp account is now linked. Copy the SESSION_ID below and paste it as the SESSION_ID environment variable when deploying to Heroku:
 
-${pairingState.sessionId}
+${sessionId}
 
 _Keep this private \u2014 anyone with it can control your bot._`;
         try {
@@ -64222,6 +64231,8 @@ _Keep this private \u2014 anyone with it can control your bot._`;
         } catch (err) {
           logger.error({ err }, "Failed to send SESSION_ID to user DM");
         }
+      } else {
+        logger.error({ phoneNumber }, "SESSION_ID not available 5 s after connection \u2014 credentials may not have saved");
       }
     }
     if (connection === "close") {
@@ -64240,21 +64251,28 @@ _Keep this private \u2014 anyone with it can control your bot._`;
       if (attempt < MAX_PAIRING_RETRIES) {
         const hasPairCode = !!(pairingState.pairCode && pairingState.status === "pair_code_ready");
         if (hasPairCode) {
-          logger.info({ attempt: attempt + 1 }, "Pair code session expired \u2014 starting fresh to get a new code");
+          logger.info({ attempt: attempt + 1 }, "Pair code session expired \u2014 reconnecting with same auth to catch late confirmation");
           pairingState.pairCode = null;
           pairingState.status = "connecting";
+          setTimeout(() => {
+            if (myGeneration !== currentGeneration) return;
+            startPairingSession(phoneNumber, attempt + 1, true).catch((err) => {
+              logger.error({ err }, "Same-auth reconnect failed");
+              if (myGeneration === currentGeneration) pairingState.status = "disconnected";
+            });
+          }, 1500);
         } else {
-          logger.warn({ attempt: attempt + 1 }, "WhatsApp connection closed before pairing \u2014 retrying");
+          logger.warn({ attempt: attempt + 1 }, "WhatsApp connection closed \u2014 starting fresh session");
           pairingState.status = "connecting";
+          const delayMs = skipPairCodeRequest ? 2e3 : 2e3;
+          setTimeout(() => {
+            if (myGeneration !== currentGeneration) return;
+            startPairingSession(phoneNumber, attempt + 1, false).catch((err) => {
+              logger.error({ err }, "Retry attempt failed");
+              if (myGeneration === currentGeneration) pairingState.status = "disconnected";
+            });
+          }, delayMs);
         }
-        const delayMs = 2e3;
-        setTimeout(() => {
-          if (myGeneration !== currentGeneration) return;
-          startPairingSession(phoneNumber, attempt + 1, false).catch((err) => {
-            logger.error({ err }, "Retry attempt failed");
-            if (myGeneration === currentGeneration) pairingState.status = "disconnected";
-          });
-        }, delayMs);
       } else {
         logger.error({ attempt }, "All retry attempts exhausted \u2014 marking disconnected");
         pairingState.status = "disconnected";
@@ -64326,14 +64344,23 @@ async function startQrSession(attempt = 0) {
       if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info("WhatsApp QR session connected");
+      let sessionId = pairingState.sessionId;
+      if (!sessionId) {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (myGeneration !== currentGeneration) return;
+          sessionId = pairingState.sessionId;
+          if (sessionId) break;
+        }
+      }
       const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
-      if (pairingState.sessionId && phoneNum) {
+      if (sessionId && phoneNum) {
         const jid = `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
         const msg = `*NUTTER-XMD \u2014 Your Session ID*
 
 Your WhatsApp account is now linked. Copy the SESSION_ID below and paste it as the SESSION_ID environment variable when deploying to Heroku:
 
-${pairingState.sessionId}
+${sessionId}
 
 _Keep this private \u2014 anyone with it can control your bot._`;
         try {
@@ -64342,6 +64369,8 @@ _Keep this private \u2014 anyone with it can control your bot._`;
         } catch (err) {
           logger.error({ err }, "Failed to send SESSION_ID to user DM");
         }
+      } else {
+        logger.error({ phoneNum }, "SESSION_ID or phone not available after QR connection");
       }
     }
     if (connection === "close") {
