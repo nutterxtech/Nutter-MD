@@ -56,7 +56,7 @@ export function getActivePairingSocket() {
 }
 
 export async function startPairingSession(phoneNumber: string): Promise<string> {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import("@whiskeysockets/baileys");
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: QRCode } = await import("qrcode");
   const fs = await import("fs");
   const path = await import("path");
@@ -78,7 +78,7 @@ export async function startPairingSession(phoneNumber: string): Promise<string> 
     const sock = makeWASocket({
       auth: state,
       printQRInTerminal: false,
-      browser: ["NUTTER-XMD", "Chrome", "1.0.0"],
+      browser: Browsers.ubuntu("Chrome"),
     });
 
     setActivePairingSocket(sock);
@@ -147,7 +147,7 @@ export async function startPairingSession(phoneNumber: string): Promise<string> 
 }
 
 export async function startQrSession(): Promise<void> {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import("@whiskeysockets/baileys");
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: QRCode } = await import("qrcode");
   const fs = await import("fs");
   const path = await import("path");
@@ -163,7 +163,7 @@ export async function startQrSession(): Promise<void> {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    browser: ["NUTTER-XMD", "Chrome", "1.0.0"],
+    browser: Browsers.ubuntu("Chrome"),
   });
 
   setActivePairingSocket(sock);

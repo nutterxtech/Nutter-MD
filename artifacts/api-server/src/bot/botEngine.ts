@@ -22,7 +22,7 @@ async function connectBot(sessionAuth: {
   state: { creds: unknown; keys: unknown };
   saveCreds: () => Promise<void>;
 }) {
-  const { default: makeWASocket, DisconnectReason } = await import("@whiskeysockets/baileys");
+  const { default: makeWASocket, DisconnectReason, Browsers } = await import("@whiskeysockets/baileys");
   const { default: NodeCache } = await import("node-cache");
 
   const msgRetryCounterCache = new NodeCache();
@@ -30,7 +30,7 @@ async function connectBot(sessionAuth: {
   const sock = makeWASocket({
     auth: sessionAuth.state as Parameters<typeof makeWASocket>[0]["auth"],
     printQRInTerminal: false,
-    browser: ["NUTTER-XMD", "Chrome", "1.0.0"],
+    browser: Browsers.ubuntu("Chrome"),
     msgRetryCounterCache,
   });
 
