@@ -28467,23 +28467,42 @@ async function loadSessionFromEnv() {
   }
 }
 async function encodeSessionToBase64(fileMap) {
-  const creds = fileMap["creds.json"];
-  if (!creds) {
-    logger.warn("creds.json not found in fileMap \u2014 encoding all files as fallback");
-    const json2 = Buffer.from(JSON.stringify(fileMap), "utf-8");
-    const compressed2 = await gzip(json2);
-    const encoded2 = SESSION_PREFIX + compressed2.toString("base64");
-    logger.info({ byteLength: encoded2.length }, "SESSION_ID size (fallback, all files)");
-    return encoded2;
+  const toEncode = {};
+  if (fileMap["creds.json"]) {
+    toEncode["creds.json"] = fileMap["creds.json"];
+  } else {
+    logger.warn("creds.json not found in fileMap \u2014 SESSION_ID may be invalid");
   }
-  const toEncode = { "creds.json": creds };
+  const preKeyFiles = Object.keys(fileMap).filter((f) => f.startsWith("pre-key-") && f.endsWith(".json")).sort((a, b) => {
+    const idA = parseInt(a.replace("pre-key-", "").replace(".json", ""), 10) || 0;
+    const idB = parseInt(b.replace("pre-key-", "").replace(".json", ""), 10) || 0;
+    return idA - idB;
+  }).slice(-MAX_PREKEYS);
+  for (const f of preKeyFiles) {
+    toEncode[f] = fileMap[f];
+  }
+  logger.info(
+    { totalFiles: Object.keys(toEncode).length, preKeys: preKeyFiles.length },
+    "Encoding session (creds + pre-keys)"
+  );
   const json = Buffer.from(JSON.stringify(toEncode), "utf-8");
   const compressed = await gzip(json);
   const encoded = SESSION_PREFIX + compressed.toString("base64");
-  logger.info({ byteLength: encoded.length }, "SESSION_ID size (creds.json only)");
+  const charLen = encoded.length;
+  if (charLen > 6e4) {
+    logger.warn(
+      { charLen, herokuLimit: 65536 },
+      "SESSION_ID is large \u2014 approaching Heroku 64 KB limit. Consider re-pairing."
+    );
+  } else {
+    logger.info(
+      { charLen, herokuLimit: 65536 },
+      "SESSION_ID size OK"
+    );
+  }
   return encoded;
 }
-var gzip, gunzip, SESSION_PREFIX;
+var gzip, gunzip, SESSION_PREFIX, MAX_PREKEYS;
 var init_session = __esm({
   "src/bot/session.ts"() {
     "use strict";
@@ -28491,6 +28510,7 @@ var init_session = __esm({
     gzip = promisify(zlib.gzip);
     gunzip = promisify(zlib.gunzip);
     SESSION_PREFIX = "NUTTERX-MD::;";
+    MAX_PREKEYS = 50;
   }
 });
 

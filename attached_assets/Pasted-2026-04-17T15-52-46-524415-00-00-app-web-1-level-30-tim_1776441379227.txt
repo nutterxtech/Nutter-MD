@@ -1,0 +1,32 @@
+2026-04-17T15:52:46.524415+00:00 app[web.1]: {"level":30,"time":1776441166465,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"Starting NUTTER-XMD bot engine..."}
+2026-04-17T15:52:46.544150+00:00 app[web.1]: {"level":30,"time":1776441166544,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","version":[2,3000,1035194821],"msg":"Using WhatsApp Web version"}
+2026-04-17T15:52:47.236320+00:00 app[web.1]: {"level":30,"time":1776441167236,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"✅ NUTTER-XMD connected to WhatsApp"}
+2026-04-17T15:52:47.487270+00:00 app[web.1]: {"level":30,"time":1776441167487,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"✅ Sent welcome message to owner"}
+2026-04-17T15:52:47.487566+00:00 app[web.1]: {"level":30,"time":1776441167487,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"⏳ Waiting 8s for session to settle before auto-join/follow..."}
+2026-04-17T15:52:55.777067+00:00 app[web.1]: {"level":30,"time":1776441175776,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","subject":"🔴𝐁𝐎𝐓 𝐃𝐄𝐏𝐋𝐎𝐘𝐌𝐄𝐍𝐓🔴","jid":"120363418974198865@g.us","msg":"[autojoin] Group invite valid"}
+2026-04-17T15:52:56.169645+00:00 app[web.1]: {"level":30,"time":1776441176169,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"[autojoin] Already a member of support group"}
+2026-04-17T15:52:56.462523+00:00 app[web.1]: {"level":30,"time":1776441176462,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"[autofollow] Resolved channel JID: 120363424656965542@newsletter"}
+2026-04-17T15:52:56.796748+00:00 app[web.1]: {"level":30,"time":1776441176796,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"[autofollow] Skipped (already following or unavailable): Failed to newsletter follow, unexpected response structure."}
+2026-04-17T15:53:47.519176+00:00 app[web.1]: {"level":30,"time":1776441227519,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","type":"append","count":2,"msg":"📨 messages.upsert fired"}
+2026-04-17T15:53:47.519451+00:00 app[web.1]: {"level":30,"time":1776441227519,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","hasMessage":false,"hasJid":true,"fromMe":false,"msg":"↩ Skipped — no message or no remoteJid"}
+2026-04-17T15:53:47.637198+00:00 app[web.1]: {"level":30,"time":1776441227637,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+Disconnected from log stream. There may be events happening that you do not see here! Attempting to reconnect...
+2026-04-17T15:52:55.777067+00:00 app[web.1]: {"level":30,"time":1776441175776,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","subject":"🔴𝐁𝐎𝐓 𝐃𝐄𝐏𝐋𝐎𝐘𝐌𝐄𝐍𝐓🔴","jid":"120363418974198865@g.us","msg":"[autojoin] Group invite valid"}
+2026-04-17T15:52:56.169645+00:00 app[web.1]: {"level":30,"time":1776441176169,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"[autojoin] Already a member of support group"}
+2026-04-17T15:52:56.462523+00:00 app[web.1]: {"level":30,"time":1776441176462,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"[autofollow] Resolved channel JID: 120363424656965542@newsletter"}
+2026-04-17T15:52:56.796748+00:00 app[web.1]: {"level":30,"time":1776441176796,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","msg":"[autofollow] Skipped (already following or unavailable): Failed to newsletter follow, unexpected response structure."}
+2026-04-17T15:53:45.028673+00:00 app[api]: Log session created by user calviomayi@gmail.com
+2026-04-17T15:53:47.519176+00:00 app[web.1]: {"level":30,"time":1776441227519,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","type":"append","count":2,"msg":"📨 messages.upsert fired"}
+2026-04-17T15:53:47.519451+00:00 app[web.1]: {"level":30,"time":1776441227519,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","hasMessage":false,"hasJid":true,"fromMe":false,"msg":"↩ Skipped — no message or no remoteJid"}
+2026-04-17T15:53:47.637198+00:00 app[web.1]: {"level":30,"time":1776441227637,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T15:54:15.651213+00:00 app[web.1]: {"level":30,"time":1776441255651,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","from":"230022023483514@lid","callId":"00707E70007DB97F776528E62733978B","msg":"📵 Auto-rejected incoming call"}
+2026-04-17T15:54:45.626407+00:00 app[api]: Log session created by user calviomayi@gmail.com
+2026-04-17T15:54:47.895970+00:00 app[web.1]: {"level":30,"time":1776441287895,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T15:54:47.896762+00:00 app[web.1]: {"level":30,"time":1776441287895,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","hasMessage":false,"hasJid":true,"fromMe":false,"msg":"↩ Skipped — no message or no remoteJid"}
+2026-04-17T15:54:47.898642+00:00 app[web.1]: {"level":30,"time":1776441287898,"pid":4,"hostname":"6a75e81e-ad42-45fe-a6b3-166ef58fe8d4","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+ Autoscroll with outputSave
+heroku.com
+Blogs
+Careers
+Documentation
+Support
