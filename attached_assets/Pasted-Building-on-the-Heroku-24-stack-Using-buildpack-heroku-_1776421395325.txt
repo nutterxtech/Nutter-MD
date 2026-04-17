@@ -1,0 +1,58 @@
+Building on the Heroku-24 stack
+-----> Using buildpack: heroku/nodejs
+-----> Node.js app detected
+       
+-----> Creating runtime environment
+       
+       NPM_CONFIG_LOGLEVEL=error
+       NODE_VERBOSE=false
+       NODE_ENV=production
+       NODE_MODULES_CACHE=true
+       
+-----> Installing binaries
+       engines.node (package.json):   >=20
+       engines.npm (package.json):    unspecified (use default)
+       engines.pnpm (package.json):   >=10
+       packageManager (package.json): pnpm@10.26.1
+       
+        !     Multiple pnpm versions declared
+       
+              The package.json file indicates the target version of pnpm to install in two fields:
+              - "packageManager": "pnpm@10.26.1"
+              - "engines.pnpm": ">=10"
+       
+              If both fields are present, then "packageManager" will take precedence and "pnpm@10.26.1" will be installed.
+       
+              To ensure we install the version of pnpm you want, remove one of these fields.
+              https://devcenter.heroku.com/articles/nodejs-support
+       
+       Resolving node version >=20...
+       
+       ! The requested Node.js version is using a wide range (>=20) that can resolve to a Node.js major version
+         higher than you intended. Limiting the requested range to a major LTS range like `24.x` is recommended.
+         https://devcenter.heroku.com/articles/nodejs-support#specifying-a-node-js-version
+       
+       ! The resolved Node.js version has been limited to the Active LTS (24.15.0) for the requested range of `>=20`.
+         To opt-out of this behavior, set the following config var: `NODEJS_ALLOW_WIDE_RANGE=true`
+         https://devcenter.heroku.com/articles/nodejs-support#supported-node-js-versions
+       
+       Downloading and installing node 24.15.0...
+       Validating checksum
+       Using default npm version: 11.12.1
+       Downloading and installing pnpm (10.26.1)
+       /tmp/codon/tmp/buildpacks/2cd3309e34d34b154aac9f665b0eb2d2e86d8b8e/lib/binaries.sh: line 228: pnpm: command not found
+-----> Build failed
+       
+       We're sorry this build is failing! You can troubleshoot common issues here:
+       https://devcenter.heroku.com/articles/troubleshooting-node-deploys
+       
+       Some possible problems:
+       
+       - Dangerous semver range (>) in engines.node
+         https://devcenter.heroku.com/articles/nodejs-support#specifying-a-node-js-version
+       
+       Love,
+       Heroku
+       
+ !     Push rejected, failed to compile Node.js app.
+ !     Push failed
