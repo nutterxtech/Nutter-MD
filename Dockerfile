@@ -15,7 +15,10 @@ RUN apt-get update -qq > /dev/null 2>&1 \
 
 WORKDIR /app
 
-RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+ENV GIT_SSL_NO_VERIFY=true
+
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" \
+    && git config --global http.sslVerify false
 
 RUN npm install --loglevel=error --no-fund --no-audit \
     @whiskeysockets/baileys@7.0.0-rc.9 \

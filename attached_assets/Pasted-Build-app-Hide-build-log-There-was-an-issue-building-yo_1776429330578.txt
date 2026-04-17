@@ -1,0 +1,63 @@
+Build app Hide build log
+There was an issue building your app. This can mean your app.json's project is not a valid Heroku application. Please ensure your app is deployable to Heroku and try again.
+
+=== Fetching app code
+=== Building web (Dockerfile)
+Sending build context to Docker daemon  8.055MBStep 1/9 : FROM node:20-slim
+20-slim: Pulling from library/node
+da539b676105: Pulling fs layer
+1a78bbc25c7f: Pulling fs layer
+d654216581d8: Pulling fs layer
+9b97559caf99: Pulling fs layer
+c229a5665a77: Pulling fs layer
+9b97559caf99: Waiting
+c229a5665a77: Waiting
+1a78bbc25c7f: Verifying Checksum
+1a78bbc25c7f: Download complete
+9b97559caf99: Verifying Checksum
+9b97559caf99: Download complete
+c229a5665a77: Verifying Checksum
+c229a5665a77: Download complete
+da539b676105: Verifying Checksum
+da539b676105: Download complete
+d654216581d8: Verifying Checksum
+d654216581d8: Download complete
+da539b676105: Pull complete
+1a78bbc25c7f: Pull complete
+d654216581d8: Pull complete
+9b97559caf99: Pull complete
+c229a5665a77: Pull complete
+Digest: sha256:f93745c153377ee2fbbdd6e24efcd03cd2e86d6ab1d8aa9916a3790c40313a55
+Status: Downloaded newer image for node:20-slim
+ ---> 6d1685dbd5a2
+Step 2/9 : ENV DEBIAN_FRONTEND=noninteractive
+ ---> Running in 140f33e59782
+ ---> Removed intermediate container 140f33e59782
+ ---> aa55304aae1f
+Step 3/9 : RUN apt-get update -qq > /dev/null 2>&1     && apt-get install -y -qq --no-install-recommends         git         python3         make         g++         libssl-dev         > /dev/null 2>&1     && rm -rf /var/lib/apt/lists/*
+ ---> Running in 48f7da56d55f
+ ---> Removed intermediate container 48f7da56d55f
+ ---> 4d3a9893bdab
+Step 4/9 : WORKDIR /app
+ ---> Running in 46e67c0e01de
+ ---> Removed intermediate container 46e67c0e01de
+ ---> c2a7b4b137a2
+Step 5/9 : RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+ ---> Running in 4cfeeb544aba
+ ---> Removed intermediate container 4cfeeb544aba
+ ---> 0f376618f4ee
+Step 6/9 : RUN npm install --loglevel=error --no-fund --no-audit     @whiskeysockets/baileys@7.0.0-rc.9     thread-stream@3.1.0
+ ---> Running in 5764ee05cb6d
+npm error code 128
+npm error An unknown git error occurred
+npm error command git --no-replace-objects ls-remote ssh://git@github.com/whiskeysockets/libsignal-node.git
+npm error fatal: unable to access 'https://github.com/whiskeysockets/libsignal-node.git/': server certificate verification failed. CAfile: none CRLfile: none
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.12.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+npm notice To update run: npm install -g npm@11.12.1
+npm notice
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-04-17T12_34_55_879Z-debug-0.log
+The command '/bin/sh -c npm install --loglevel=error --no-fund --no-audit     @whiskeysockets/baileys@7.0.0-rc.9     thread-stream@3.1.0' returned a non-zero code: 128
+Build finished
+Run scripts & scale dynos
