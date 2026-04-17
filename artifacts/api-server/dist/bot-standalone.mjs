@@ -5040,6 +5040,7 @@ import { promisify } from "util";
 var gzip = promisify(zlib.gzip);
 var gunzip = promisify(zlib.gunzip);
 var SESSION_PREFIX = "NUTTERX-MD::;";
+var activeBotSessionDir = null;
 async function loadSessionFromEnv() {
   const sessionId = process.env["SESSION_ID"];
   if (!sessionId) {
@@ -5075,6 +5076,7 @@ async function loadSessionFromEnv() {
       fs.writeFileSync(path.join(sessionDir, filename), JSON.stringify(content), "utf-8");
     }
     const authState = await useMultiFileAuthState(sessionDir);
+    activeBotSessionDir = sessionDir;
     logger.info({ sessionDir, fileCount }, "Session loaded from SESSION_ID env var");
     return authState;
   } catch (err) {

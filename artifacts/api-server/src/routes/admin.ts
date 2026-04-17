@@ -1,5 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { logger } from "../lib/logger";
+import { getActiveBotSessionDir, encodeSessionToBase64, type SessionFileMap } from "../bot/session";
+import fs from "fs";
+import path from "path";
 
 const router = Router();
 const GITHUB_API_BASE = "https://api.github.com";
@@ -130,6 +133,67 @@ router.get("/deploy/verify-fork", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "Fork verification error");
     res.status(500).json({ error: "SERVER_ERROR", message: "Internal server error" });
+  }
+});
+
+// ── Refresh Session ID ────────────────────────────────────────────────────────
+// Reads the RUNNING BOT's live session files (which have accumulated sender-key
+// and session files since pairing) and returns a new, rich SESSION_ID.
+//
+// WHY THIS IS NEEDED:
+//   At pairing time the bot has no session-*.json or sender-key-*.json files
+//   (they only exist after real messages are exchanged). The pairing SESSION_ID
+//   is therefore always just creds + pre-keys. After the bot has been running
+//   for any amount of time, these files accumulate in /tmp. Calling this endpoint
+//   exports the live /tmp state into a new SESSION_ID that you paste into Heroku.
+//   Subsequent redeploys then decrypt instantly instead of waiting 60-120 s.
+//
+// SECURITY: protected by ADMIN_PASSWORD (same as other admin endpoints).
+router.get("/bot/refresh-session", requireAdminPassword, async (_req, res) => {
+  const sessionDir = getActiveBotSessionDir();
+
+  if (!sessionDir) {
+    res.status(503).json({
+      error: "BOT_NOT_RUNNING",
+      message: "The bot engine is not running. Set SESSION_ID and redeploy first, then call this endpoint after the bot has been connected for a few minutes.",
+    });
+    return;
+  }
+
+  try {
+    const files = fs.readdirSync(sessionDir);
+    const fileMap: SessionFileMap = {};
+
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(sessionDir, file), "utf-8");
+        fileMap[file] = JSON.parse(content);
+      } catch {
+        // skip unreadable files
+      }
+    }
+
+    const sessionFiles   = files.filter((f) => f.startsWith("session-")).length;
+    const senderKeyFiles = files.filter((f) => f.startsWith("sender-key-")).length;
+    const preKeyFiles    = files.filter((f) => f.startsWith("pre-key-")).length;
+
+    logger.info({ total: files.length, sessionFiles, senderKeyFiles, preKeyFiles }, "Refreshing SESSION_ID from live bot session dir");
+
+    const newSessionId = await encodeSessionToBase64(fileMap);
+
+    res.json({
+      sessionId: newSessionId,
+      stats: {
+        totalFiles: files.length,
+        sessionFiles,
+        senderKeyFiles,
+        preKeyFiles,
+        hasCreds: files.includes("creds.json"),
+      },
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to refresh session");
+    res.status(500).json({ error: "SERVER_ERROR", message: "Failed to read session files" });
   }
 });
 

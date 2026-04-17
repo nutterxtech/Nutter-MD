@@ -14,6 +14,15 @@ export const SESSION_PREFIX = "NUTTERX-MD::;";
 
 export type SessionFileMap = Record<string, unknown>;
 
+// Tracks the active bot session directory (set when the bot successfully loads
+// its session). Used by the /bot/refresh-session endpoint to export a fresh
+// SESSION_ID that includes all sender-key + session files accumulated at runtime.
+let activeBotSessionDir: string | null = null;
+
+export function getActiveBotSessionDir(): string | null {
+  return activeBotSessionDir;
+}
+
 export async function loadSessionFromEnv(): Promise<{
   state: { creds: unknown; keys: unknown };
   saveCreds: () => Promise<void>;
@@ -61,6 +70,7 @@ export async function loadSessionFromEnv(): Promise<{
     }
 
     const authState = await useMultiFileAuthState(sessionDir);
+    activeBotSessionDir = sessionDir;
     logger.info({ sessionDir, fileCount }, "Session loaded from SESSION_ID env var");
     return authState;
   } catch (err) {
