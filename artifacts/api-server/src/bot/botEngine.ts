@@ -136,7 +136,7 @@ async function connectBot(sessionAuth: {
     syncFullHistory: false,
     // getMessage lets Baileys re-fetch a message when decryption fails (Bad MAC fix)
     getMessage: async (key) => {
-      const cached = key.id ? (await import("./store")).popCachedMessage(key.id) : undefined;
+      const cached = key.id ? popCachedMessage(key.id) : undefined;
       return cached?.message ?? { conversation: "" };
     },
   });
@@ -189,13 +189,29 @@ async function connectBot(sessionAuth: {
 
   // ── Messages ─────────────────────────────────────────────────────────────────
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
+    // Log EVERY upsert event regardless of type so we can see what's arriving
+    logger.info({ type, count: messages.length }, "📨 messages.upsert fired");
+
+    // Accept both "notify" (real-time incoming) and "append" (some linked-device configs).
+    // Own sent messages (fromMe=true) are filtered per-message below.
+    if (type !== "notify" && type !== "append") {
+      logger.info({ type }, "↩ Skipped — type is neither notify nor append");
+      return;
+    }
 
     const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
 
     for (const msg of messages) {
       try {
-        if (!msg.message || !msg.key.remoteJid) continue;
+        // Skip the bot's own sent messages (only relevant when type=="append")
+        if (msg.key?.fromMe) continue;
+
+        const hasMessage = !!msg.message;
+        const hasJid = !!msg.key?.remoteJid;
+        if (!hasMessage || !hasJid) {
+          logger.info({ hasMessage, hasJid, fromMe: msg.key?.fromMe }, "↩ Skipped — no message or no remoteJid");
+          continue;
+        }
 
         const jid = msg.key.remoteJid;
 

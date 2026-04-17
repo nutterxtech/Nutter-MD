@@ -18,15 +18,8 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
 var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -4360,92 +4353,6 @@ var require_pino = __commonJS({
   }
 });
 
-// src/bot/store.ts
-var store_exports = {};
-__export(store_exports, {
-  cacheMessage: () => cacheMessage,
-  ensureGroupSettings: () => ensureGroupSettings,
-  getBotSettings: () => getBotSettings,
-  getGroupSettings: () => getGroupSettings,
-  getUserSettings: () => getUserSettings,
-  popCachedMessage: () => popCachedMessage,
-  setUserBanned: () => setUserBanned,
-  updateBotSettings: () => updateBotSettings,
-  updateGroupSettings: () => updateGroupSettings
-});
-function getGroupSettings(groupId) {
-  return groupStore.get(groupId) ?? null;
-}
-function ensureGroupSettings(groupId) {
-  if (!groupStore.has(groupId)) {
-    groupStore.set(groupId, {
-      groupId,
-      // Default true unless explicitly set to "false"
-      antilink: process.env["ANTI_LINK"] !== "false",
-      antibadword: process.env["ANTI_BAD_WORD"] !== "false" ? "delete" : "off",
-      customBadWords: null,
-      antimention: process.env["ANTI_MENTION"] !== "false",
-      antiDelete: process.env["ANTI_DELETE"] !== "false",
-      mute: false,
-      customPrefix: null,
-      welcomeEnabled: false,
-      welcomeMessage: null,
-      autoReply: null
-    });
-  }
-  return groupStore.get(groupId);
-}
-function updateGroupSettings(groupId, update) {
-  const existing = ensureGroupSettings(groupId);
-  groupStore.set(groupId, { ...existing, ...update });
-}
-function getUserSettings(userId) {
-  return userStore.get(userId) ?? null;
-}
-function setUserBanned(userId, isBanned) {
-  userStore.set(userId, { userId, isBanned });
-}
-function getBotSettings() {
-  return { ...botSettings };
-}
-function updateBotSettings(update) {
-  Object.assign(botSettings, update);
-}
-function cacheMessage(msg) {
-  const id = msg.key.id;
-  if (!id || msg.key.fromMe) return;
-  if (msgCache.size >= MSG_MAX) {
-    const now = Date.now();
-    for (const [k, v] of msgCache) {
-      if (v.expireAt < now) msgCache.delete(k);
-    }
-  }
-  msgCache.set(id, { msg, expireAt: Date.now() + MSG_TTL });
-}
-function popCachedMessage(id) {
-  const entry = msgCache.get(id);
-  if (!entry) return null;
-  msgCache.delete(id);
-  return entry.expireAt >= Date.now() ? entry.msg : null;
-}
-var groupStore, userStore, botSettings, MSG_TTL, MSG_MAX, msgCache;
-var init_store = __esm({
-  "src/bot/store.ts"() {
-    "use strict";
-    groupStore = /* @__PURE__ */ new Map();
-    userStore = /* @__PURE__ */ new Map();
-    botSettings = {
-      autoViewStatus: process.env["AUTO_VIEW_STATUS"] !== "false",
-      autoLikeStatus: process.env["AUTO_LIKE_STATUS"] !== "false",
-      statusLikeEmoji: process.env["STATUS_LIKE_EMOJI"] || "\u2764\uFE0F",
-      autoRejectCall: process.env["AUTO_REJECT_CALL"] !== "false"
-    };
-    MSG_TTL = 5 * 60 * 1e3;
-    MSG_MAX = 2e3;
-    msgCache = /* @__PURE__ */ new Map();
-  }
-});
-
 // ../../node_modules/.pnpm/clone@2.1.2/node_modules/clone/clone.js
 var require_clone = __commonJS({
   "../../node_modules/.pnpm/clone@2.1.2/node_modules/clone/clone.js"(exports, module) {
@@ -5175,11 +5082,75 @@ async function loadSessionFromEnv() {
   }
 }
 
-// src/bot/handler.ts
-init_store();
+// src/bot/store.ts
+var groupStore = /* @__PURE__ */ new Map();
+function getGroupSettings(groupId) {
+  return groupStore.get(groupId) ?? null;
+}
+function ensureGroupSettings(groupId) {
+  if (!groupStore.has(groupId)) {
+    groupStore.set(groupId, {
+      groupId,
+      // Default true unless explicitly set to "false"
+      antilink: process.env["ANTI_LINK"] !== "false",
+      antibadword: process.env["ANTI_BAD_WORD"] !== "false" ? "delete" : "off",
+      customBadWords: null,
+      antimention: process.env["ANTI_MENTION"] !== "false",
+      antiDelete: process.env["ANTI_DELETE"] !== "false",
+      mute: false,
+      customPrefix: null,
+      welcomeEnabled: false,
+      welcomeMessage: null,
+      autoReply: null
+    });
+  }
+  return groupStore.get(groupId);
+}
+function updateGroupSettings(groupId, update) {
+  const existing = ensureGroupSettings(groupId);
+  groupStore.set(groupId, { ...existing, ...update });
+}
+var userStore = /* @__PURE__ */ new Map();
+function getUserSettings(userId) {
+  return userStore.get(userId) ?? null;
+}
+function setUserBanned(userId, isBanned) {
+  userStore.set(userId, { userId, isBanned });
+}
+var botSettings = {
+  autoViewStatus: process.env["AUTO_VIEW_STATUS"] !== "false",
+  autoLikeStatus: process.env["AUTO_LIKE_STATUS"] !== "false",
+  statusLikeEmoji: process.env["STATUS_LIKE_EMOJI"] || "\u2764\uFE0F",
+  autoRejectCall: process.env["AUTO_REJECT_CALL"] !== "false"
+};
+function getBotSettings() {
+  return { ...botSettings };
+}
+function updateBotSettings(update) {
+  Object.assign(botSettings, update);
+}
+var MSG_TTL = 5 * 60 * 1e3;
+var MSG_MAX = 2e3;
+var msgCache = /* @__PURE__ */ new Map();
+function cacheMessage(msg) {
+  const id = msg.key.id;
+  if (!id || msg.key.fromMe) return;
+  if (msgCache.size >= MSG_MAX) {
+    const now = Date.now();
+    for (const [k, v] of msgCache) {
+      if (v.expireAt < now) msgCache.delete(k);
+    }
+  }
+  msgCache.set(id, { msg, expireAt: Date.now() + MSG_TTL });
+}
+function popCachedMessage(id) {
+  const entry = msgCache.get(id);
+  if (!entry) return null;
+  msgCache.delete(id);
+  return entry.expireAt >= Date.now() ? entry.msg : null;
+}
 
 // src/bot/commands/general.ts
-init_store();
 async function handlePing(sock, msg, ctx) {
   const start = Date.now();
   await sock.sendMessage(ctx.jid, { text: "\u{1F3D3} Pong!" });
@@ -5393,7 +5364,6 @@ async function handleRestart(sock, _msg, ctx) {
 }
 
 // src/bot/commands/group.ts
-init_store();
 async function handleKick(sock, msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
     await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
@@ -5893,11 +5863,18 @@ async function handleStatusMessage(sock, msg) {
   }
 }
 async function handleMessage(sock, msg) {
-  if (!msg.key) return;
+  if (!msg.key) {
+    logger.warn("handleMessage called with no msg.key \u2014 dropped");
+    return;
+  }
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
   const defaultPrefix = process.env["PREFIX"] || ".";
   const jid = msg.key.remoteJid;
-  if (!jid) return;
+  if (!jid) {
+    logger.warn("handleMessage: no remoteJid \u2014 dropped");
+    return;
+  }
+  logger.info({ jid, fromMe: msg.key.fromMe, msgKeys: Object.keys(msg.message || {}) }, "\u{1F4E9} handleMessage reached");
   const isGroup = jid.endsWith("@g.us");
   const botJidFull = sock.user?.id || "";
   const senderJid = isGroup ? msg.key.participant || botJidFull : msg.key.fromMe ? botJidFull : jid;
@@ -6133,7 +6110,6 @@ async function handleGroupParticipantsUpdate(sock, update) {
 }
 
 // src/bot/botEngine.ts
-init_store();
 var MAX_RECONNECTS = 2;
 var RECONNECT_DELAY_MS = 5e3;
 var silentLogger = (0, import_pino2.default)({ level: "silent" });
@@ -6237,7 +6213,7 @@ async function connectBot(sessionAuth) {
     syncFullHistory: false,
     // getMessage lets Baileys re-fetch a message when decryption fails (Bad MAC fix)
     getMessage: async (key) => {
-      const cached = key.id ? (await Promise.resolve().then(() => (init_store(), store_exports))).popCachedMessage(key.id) : void 0;
+      const cached = key.id ? popCachedMessage(key.id) : void 0;
       return cached?.message ?? { conversation: "" };
     }
   });
@@ -6278,11 +6254,21 @@ async function connectBot(sessionAuth) {
     }
   });
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
+    logger.info({ type, count: messages.length }, "\u{1F4E8} messages.upsert fired");
+    if (type !== "notify" && type !== "append") {
+      logger.info({ type }, "\u21A9 Skipped \u2014 type is neither notify nor append");
+      return;
+    }
     const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
     for (const msg of messages) {
       try {
-        if (!msg.message || !msg.key.remoteJid) continue;
+        if (msg.key?.fromMe) continue;
+        const hasMessage = !!msg.message;
+        const hasJid = !!msg.key?.remoteJid;
+        if (!hasMessage || !hasJid) {
+          logger.info({ hasMessage, hasJid, fromMe: msg.key?.fromMe }, "\u21A9 Skipped \u2014 no message or no remoteJid");
+          continue;
+        }
         const jid = msg.key.remoteJid;
         if (jid === "status@broadcast") {
           await handleStatusMessage(sock, msg);

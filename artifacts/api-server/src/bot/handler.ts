@@ -133,13 +133,21 @@ export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessage
 
 // ── Main message handler ───────────────────────────────────────────────────────
 export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
-  if (!msg.key) return;
+  if (!msg.key) {
+    logger.warn("handleMessage called with no msg.key — dropped");
+    return;
+  }
 
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
   const defaultPrefix = process.env["PREFIX"] || ".";
 
   const jid = msg.key.remoteJid;
-  if (!jid) return;
+  if (!jid) {
+    logger.warn("handleMessage: no remoteJid — dropped");
+    return;
+  }
+
+  logger.info({ jid, fromMe: msg.key.fromMe, msgKeys: Object.keys(msg.message || {}) }, "📩 handleMessage reached");
 
   const isGroup = jid.endsWith("@g.us");
 

@@ -33021,18 +33021,6 @@ var require_lib4 = __commonJS({
 });
 
 // src/bot/store.ts
-var store_exports = {};
-__export(store_exports, {
-  cacheMessage: () => cacheMessage,
-  ensureGroupSettings: () => ensureGroupSettings,
-  getBotSettings: () => getBotSettings,
-  getGroupSettings: () => getGroupSettings,
-  getUserSettings: () => getUserSettings,
-  popCachedMessage: () => popCachedMessage,
-  setUserBanned: () => setUserBanned,
-  updateBotSettings: () => updateBotSettings,
-  updateGroupSettings: () => updateGroupSettings
-});
 function getGroupSettings(groupId) {
   return groupStore.get(groupId) ?? null;
 }
@@ -33829,11 +33817,18 @@ async function handleStatusMessage(sock, msg) {
   }
 }
 async function handleMessage(sock, msg) {
-  if (!msg.key) return;
+  if (!msg.key) {
+    logger.warn("handleMessage called with no msg.key \u2014 dropped");
+    return;
+  }
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
   const defaultPrefix = process.env["PREFIX"] || ".";
   const jid = msg.key.remoteJid;
-  if (!jid) return;
+  if (!jid) {
+    logger.warn("handleMessage: no remoteJid \u2014 dropped");
+    return;
+  }
+  logger.info({ jid, fromMe: msg.key.fromMe, msgKeys: Object.keys(msg.message || {}) }, "\u{1F4E9} handleMessage reached");
   const isGroup = jid.endsWith("@g.us");
   const botJidFull = sock.user?.id || "";
   const senderJid = isGroup ? msg.key.participant || botJidFull : msg.key.fromMe ? botJidFull : jid;
@@ -34840,7 +34835,7 @@ async function connectBot(sessionAuth) {
     syncFullHistory: false,
     // getMessage lets Baileys re-fetch a message when decryption fails (Bad MAC fix)
     getMessage: async (key) => {
-      const cached = key.id ? (await Promise.resolve().then(() => (init_store(), store_exports))).popCachedMessage(key.id) : void 0;
+      const cached = key.id ? popCachedMessage(key.id) : void 0;
       return cached?.message ?? { conversation: "" };
     }
   });
@@ -34881,11 +34876,21 @@ async function connectBot(sessionAuth) {
     }
   });
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
+    logger.info({ type, count: messages.length }, "\u{1F4E8} messages.upsert fired");
+    if (type !== "notify" && type !== "append") {
+      logger.info({ type }, "\u21A9 Skipped \u2014 type is neither notify nor append");
+      return;
+    }
     const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
     for (const msg of messages) {
       try {
-        if (!msg.message || !msg.key.remoteJid) continue;
+        if (msg.key?.fromMe) continue;
+        const hasMessage = !!msg.message;
+        const hasJid = !!msg.key?.remoteJid;
+        if (!hasMessage || !hasJid) {
+          logger.info({ hasMessage, hasJid, fromMe: msg.key?.fromMe }, "\u21A9 Skipped \u2014 no message or no remoteJid");
+          continue;
+        }
         const jid = msg.key.remoteJid;
         if (jid === "status@broadcast") {
           await handleStatusMessage(sock, msg);
