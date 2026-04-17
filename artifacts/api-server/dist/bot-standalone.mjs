@@ -8593,7 +8593,7 @@ var require_pg_pool = __commonJS({
     function throwOnDoubleRelease() {
       throw new Error("Release called on client which has already been released to the pool.");
     }
-    function promisify(Promise2, callback) {
+    function promisify2(Promise2, callback) {
       if (callback) {
         return { callback, result: void 0 };
       }
@@ -8731,7 +8731,7 @@ var require_pg_pool = __commonJS({
           const err = new Error("Cannot use a pool after calling end on the pool");
           return cb ? cb(err) : this.Promise.reject(err);
         }
-        const response = promisify(this.Promise, cb);
+        const response = promisify2(this.Promise, cb);
         const result = response.result;
         if (this._isFull() || this._idle.length) {
           if (this._idle.length) {
@@ -8916,7 +8916,7 @@ var require_pg_pool = __commonJS({
       }
       query(text2, values, cb) {
         if (typeof text2 === "function") {
-          const response2 = promisify(this.Promise, text2);
+          const response2 = promisify2(this.Promise, text2);
           setImmediate(function() {
             return response2.callback(new Error("Passing a function as the first parameter to pool.query is not supported"));
           });
@@ -8926,7 +8926,7 @@ var require_pg_pool = __commonJS({
           cb = values;
           values = void 0;
         }
-        const response = promisify(this.Promise, cb);
+        const response = promisify2(this.Promise, cb);
         cb = response.callback;
         this.connect((err, client) => {
           if (err) {
@@ -8971,7 +8971,7 @@ var require_pg_pool = __commonJS({
           return cb ? cb(err) : this.Promise.reject(err);
         }
         this.ending = true;
-        const promised = promisify(this.Promise, cb);
+        const promised = promisify2(this.Promise, cb);
         this._endCallback = promised.callback;
         this._pulseQueue();
         return promised.result;
@@ -10140,6 +10140,10 @@ var logger = (0, import_pino.default)({
 import fs from "fs";
 import path from "path";
 import os from "os";
+import zlib from "zlib";
+import { promisify } from "util";
+var gzip = promisify(zlib.gzip);
+var gunzip = promisify(zlib.gunzip);
 async function loadSessionFromEnv() {
   const sessionId = process.env["SESSION_ID"];
   if (!sessionId) {
@@ -10147,8 +10151,15 @@ async function loadSessionFromEnv() {
     return null;
   }
   try {
-    const decoded = Buffer.from(sessionId, "base64").toString("utf-8");
-    const fileMap = JSON.parse(decoded);
+    const raw = Buffer.from(sessionId, "base64");
+    let jsonStr;
+    if (raw[0] === 31 && raw[1] === 139) {
+      const decompressed = await gunzip(raw);
+      jsonStr = decompressed.toString("utf-8");
+    } else {
+      jsonStr = raw.toString("utf-8");
+    }
+    const fileMap = JSON.parse(jsonStr);
     const { useMultiFileAuthState } = await import("@whiskeysockets/baileys");
     const sessionDir = path.join(os.tmpdir(), `nutter-xmd-session-${process.pid}`);
     if (fs.existsSync(sessionDir)) {
@@ -10162,7 +10173,7 @@ async function loadSessionFromEnv() {
     logger.info({ sessionDir }, "Session loaded from SESSION_ID env var");
     return authState;
   } catch (err) {
-    logger.error({ err }, "Failed to parse SESSION_ID \u2014 ensure it is a valid base64-encoded JSON string");
+    logger.error({ err }, "Failed to parse SESSION_ID \u2014 ensure it is a valid base64-encoded session string");
     return null;
   }
 }

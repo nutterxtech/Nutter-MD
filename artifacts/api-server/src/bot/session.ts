@@ -2,6 +2,11 @@ import { logger } from "../lib/logger";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import zlib from "zlib";
+import { promisify } from "util";
+
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
 
 export type SessionFileMap = Record<string, unknown>;
 
@@ -16,8 +21,19 @@ export async function loadSessionFromEnv(): Promise<{
   }
 
   try {
-    const decoded = Buffer.from(sessionId, "base64").toString("utf-8");
-    const fileMap = JSON.parse(decoded) as SessionFileMap;
+    const raw = Buffer.from(sessionId, "base64");
+
+    let jsonStr: string;
+    // Gzip magic bytes: 0x1f 0x8b
+    if (raw[0] === 0x1f && raw[1] === 0x8b) {
+      const decompressed = await gunzip(raw);
+      jsonStr = decompressed.toString("utf-8");
+    } else {
+      // Legacy uncompressed session ID
+      jsonStr = raw.toString("utf-8");
+    }
+
+    const fileMap = JSON.parse(jsonStr) as SessionFileMap;
 
     const { useMultiFileAuthState } = await import("@whiskeysockets/baileys");
 
@@ -35,11 +51,13 @@ export async function loadSessionFromEnv(): Promise<{
     logger.info({ sessionDir }, "Session loaded from SESSION_ID env var");
     return authState;
   } catch (err) {
-    logger.error({ err }, "Failed to parse SESSION_ID — ensure it is a valid base64-encoded JSON string");
+    logger.error({ err }, "Failed to parse SESSION_ID — ensure it is a valid base64-encoded session string");
     return null;
   }
 }
 
-export function encodeSessionToBase64(fileMap: SessionFileMap): string {
-  return Buffer.from(JSON.stringify(fileMap)).toString("base64");
+export async function encodeSessionToBase64(fileMap: SessionFileMap): Promise<string> {
+  const json = Buffer.from(JSON.stringify(fileMap), "utf-8");
+  const compressed = await gzip(json);
+  return compressed.toString("base64");
 }

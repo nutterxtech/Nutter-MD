@@ -138,7 +138,7 @@ export async function startPairingSession(
         const content = fs.readFileSync(path.join(sessionDir, file), "utf-8");
         fileMap[file] = JSON.parse(content);
       }
-      pairingState.sessionId = encodeSessionToBase64(fileMap);
+      pairingState.sessionId = await encodeSessionToBase64(fileMap);
     } catch (err) {
       logger.error({ err }, "Failed to serialize credentials");
     }
@@ -311,7 +311,7 @@ export async function startQrSession(attempt = 0): Promise<void> {
         const content = fs.readFileSync(path.join(sessionDir, file), "utf-8");
         fileMap[file] = JSON.parse(content);
       }
-      pairingState.sessionId = encodeSessionToBase64(fileMap);
+      pairingState.sessionId = await encodeSessionToBase64(fileMap);
       if (!pairingState.phoneNumber && state.creds.me?.id) {
         pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
       }

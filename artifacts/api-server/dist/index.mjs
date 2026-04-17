@@ -15474,7 +15474,7 @@ var require_read = __commonJS({
     var getBody = require_raw_body();
     var iconv = require_lib();
     var onFinished = require_on_finished();
-    var zlib = __require("node:zlib");
+    var zlib2 = __require("node:zlib");
     var hasBody = require_type_is().hasBody;
     var { getCharset } = require_utils();
     module.exports = read;
@@ -15599,13 +15599,13 @@ var require_read = __commonJS({
       switch (encoding) {
         case "deflate":
           debug("inflate body");
-          return zlib.createInflate();
+          return zlib2.createInflate();
         case "gzip":
           debug("gunzip body");
-          return zlib.createGunzip();
+          return zlib2.createGunzip();
         case "br":
           debug("brotli decompress body");
-          return zlib.createBrotliDecompress();
+          return zlib2.createBrotliDecompress();
         default:
           throw createError(415, 'unsupported content encoding "' + encoding + '"', {
             encoding,
@@ -28422,6 +28422,8 @@ var init_logger = __esm({
 import fs from "fs";
 import path from "path";
 import os from "os";
+import zlib from "zlib";
+import { promisify } from "util";
 async function loadSessionFromEnv() {
   const sessionId = process.env["SESSION_ID"];
   if (!sessionId) {
@@ -28429,8 +28431,15 @@ async function loadSessionFromEnv() {
     return null;
   }
   try {
-    const decoded = Buffer.from(sessionId, "base64").toString("utf-8");
-    const fileMap = JSON.parse(decoded);
+    const raw = Buffer.from(sessionId, "base64");
+    let jsonStr;
+    if (raw[0] === 31 && raw[1] === 139) {
+      const decompressed = await gunzip(raw);
+      jsonStr = decompressed.toString("utf-8");
+    } else {
+      jsonStr = raw.toString("utf-8");
+    }
+    const fileMap = JSON.parse(jsonStr);
     const { useMultiFileAuthState } = await import("@whiskeysockets/baileys");
     const sessionDir = path.join(os.tmpdir(), `nutter-xmd-session-${process.pid}`);
     if (fs.existsSync(sessionDir)) {
@@ -28444,17 +28453,22 @@ async function loadSessionFromEnv() {
     logger.info({ sessionDir }, "Session loaded from SESSION_ID env var");
     return authState;
   } catch (err) {
-    logger.error({ err }, "Failed to parse SESSION_ID \u2014 ensure it is a valid base64-encoded JSON string");
+    logger.error({ err }, "Failed to parse SESSION_ID \u2014 ensure it is a valid base64-encoded session string");
     return null;
   }
 }
-function encodeSessionToBase64(fileMap) {
-  return Buffer.from(JSON.stringify(fileMap)).toString("base64");
+async function encodeSessionToBase64(fileMap) {
+  const json3 = Buffer.from(JSON.stringify(fileMap), "utf-8");
+  const compressed = await gzip(json3);
+  return compressed.toString("base64");
 }
+var gzip, gunzip;
 var init_session = __esm({
   "src/bot/session.ts"() {
     "use strict";
     init_logger();
+    gzip = promisify(zlib.gzip);
+    gunzip = promisify(zlib.gunzip);
   }
 });
 
@@ -31313,7 +31327,7 @@ var require_parser_async = __commonJS({
   "../../node_modules/.pnpm/pngjs@5.0.0/node_modules/pngjs/lib/parser-async.js"(exports, module) {
     "use strict";
     var util2 = __require("util");
-    var zlib = __require("zlib");
+    var zlib2 = __require("zlib");
     var ChunkStream = require_chunkstream();
     var FilterAsync = require_filter_parse_async();
     var Parser = require_parser();
@@ -31355,15 +31369,15 @@ var require_parser_async = __commonJS({
     ParserAsync.prototype._inflateData = function(data) {
       if (!this._inflate) {
         if (this._bitmapInfo.interlace) {
-          this._inflate = zlib.createInflate();
+          this._inflate = zlib2.createInflate();
           this._inflate.on("error", this.emit.bind(this, "error"));
           this._filter.on("complete", this._complete.bind(this));
           this._inflate.pipe(this._filter);
         } else {
           let rowSize = (this._bitmapInfo.width * this._bitmapInfo.bpp * this._bitmapInfo.depth + 7 >> 3) + 1;
           let imageSize = rowSize * this._bitmapInfo.height;
-          let chunkSize = Math.max(imageSize, zlib.Z_MIN_CHUNK);
-          this._inflate = zlib.createInflate({ chunkSize });
+          let chunkSize = Math.max(imageSize, zlib2.Z_MIN_CHUNK);
+          this._inflate = zlib2.createInflate({ chunkSize });
           let leftToInflate = imageSize;
           let emitError = this.emit.bind(this, "error");
           this._inflate.on("error", function(err) {
@@ -31734,14 +31748,14 @@ var require_packer = __commonJS({
     var CrcStream = require_crc();
     var bitPacker = require_bitpacker();
     var filter = require_filter_pack();
-    var zlib = __require("zlib");
+    var zlib2 = __require("zlib");
     var Packer = module.exports = function(options) {
       this._options = options;
       options.deflateChunkSize = options.deflateChunkSize || 32 * 1024;
       options.deflateLevel = options.deflateLevel != null ? options.deflateLevel : 9;
       options.deflateStrategy = options.deflateStrategy != null ? options.deflateStrategy : 3;
       options.inputHasAlpha = options.inputHasAlpha != null ? options.inputHasAlpha : true;
-      options.deflateFactory = options.deflateFactory || zlib.createDeflate;
+      options.deflateFactory = options.deflateFactory || zlib2.createDeflate;
       options.bitDepth = options.bitDepth || 8;
       options.colorType = typeof options.colorType === "number" ? options.colorType : constants.COLORTYPE_COLOR_ALPHA;
       options.inputColorType = typeof options.inputColorType === "number" ? options.inputColorType : constants.COLORTYPE_COLOR_ALPHA;
@@ -31873,17 +31887,17 @@ var require_sync_inflate = __commonJS({
   "../../node_modules/.pnpm/pngjs@5.0.0/node_modules/pngjs/lib/sync-inflate.js"(exports, module) {
     "use strict";
     var assert2 = __require("assert").ok;
-    var zlib = __require("zlib");
+    var zlib2 = __require("zlib");
     var util2 = __require("util");
     var kMaxLength = __require("buffer").kMaxLength;
     function Inflate(opts) {
       if (!(this instanceof Inflate)) {
         return new Inflate(opts);
       }
-      if (opts && opts.chunkSize < zlib.Z_MIN_CHUNK) {
-        opts.chunkSize = zlib.Z_MIN_CHUNK;
+      if (opts && opts.chunkSize < zlib2.Z_MIN_CHUNK) {
+        opts.chunkSize = zlib2.Z_MIN_CHUNK;
       }
-      zlib.Inflate.call(this, opts);
+      zlib2.Inflate.call(this, opts);
       this._offset = this._offset === void 0 ? this._outOffset : this._offset;
       this._buffer = this._buffer || this._outBuffer;
       if (opts && opts.maxLength != null) {
@@ -31905,7 +31919,7 @@ var require_sync_inflate = __commonJS({
     }
     Inflate.prototype._processChunk = function(chunk, flushFlag, asyncCb) {
       if (typeof asyncCb === "function") {
-        return zlib.Inflate._processChunk.call(this, chunk, flushFlag, asyncCb);
+        return zlib2.Inflate._processChunk.call(this, chunk, flushFlag, asyncCb);
       }
       let self = this;
       let availInBefore = chunk && chunk.length;
@@ -31981,7 +31995,7 @@ var require_sync_inflate = __commonJS({
       _close(this);
       return buf;
     };
-    util2.inherits(Inflate, zlib.Inflate);
+    util2.inherits(Inflate, zlib2.Inflate);
     function zlibBufferSync(engine, buffer) {
       if (typeof buffer === "string") {
         buffer = Buffer.from(buffer);
@@ -31991,7 +32005,7 @@ var require_sync_inflate = __commonJS({
       }
       let flushFlag = engine._finishFlushFlag;
       if (flushFlag == null) {
-        flushFlag = zlib.Z_FINISH;
+        flushFlag = zlib2.Z_FINISH;
       }
       return engine._processChunk(buffer, flushFlag);
     }
@@ -32072,9 +32086,9 @@ var require_parser_sync = __commonJS({
   "../../node_modules/.pnpm/pngjs@5.0.0/node_modules/pngjs/lib/parser-sync.js"(exports, module) {
     "use strict";
     var hasSyncZlib = true;
-    var zlib = __require("zlib");
+    var zlib2 = __require("zlib");
     var inflateSync = require_sync_inflate();
-    if (!zlib.deflateSync) {
+    if (!zlib2.deflateSync) {
       hasSyncZlib = false;
     }
     var SyncReader = require_sync_reader();
@@ -32133,7 +32147,7 @@ var require_parser_sync = __commonJS({
       inflateDataList.length = 0;
       let inflatedData;
       if (metaData.interlace) {
-        inflatedData = zlib.inflateSync(inflateData);
+        inflatedData = zlib2.inflateSync(inflateData);
       } else {
         let rowSize = (metaData.width * metaData.bpp * metaData.depth + 7 >> 3) + 1;
         let imageSize = rowSize * metaData.height;
@@ -32163,8 +32177,8 @@ var require_packer_sync = __commonJS({
   "../../node_modules/.pnpm/pngjs@5.0.0/node_modules/pngjs/lib/packer-sync.js"(exports, module) {
     "use strict";
     var hasSyncZlib = true;
-    var zlib = __require("zlib");
-    if (!zlib.deflateSync) {
+    var zlib2 = __require("zlib");
+    if (!zlib2.deflateSync) {
       hasSyncZlib = false;
     }
     var constants = require_constants2();
@@ -32188,7 +32202,7 @@ var require_packer_sync = __commonJS({
         metaData.width,
         metaData.height
       );
-      let compressedData = zlib.deflateSync(
+      let compressedData = zlib2.deflateSync(
         filteredData,
         packer.getDeflateOptions()
       );
@@ -37227,7 +37241,7 @@ var require_pg_pool = __commonJS({
     function throwOnDoubleRelease() {
       throw new Error("Release called on client which has already been released to the pool.");
     }
-    function promisify(Promise2, callback) {
+    function promisify2(Promise2, callback) {
       if (callback) {
         return { callback, result: void 0 };
       }
@@ -37365,7 +37379,7 @@ var require_pg_pool = __commonJS({
           const err = new Error("Cannot use a pool after calling end on the pool");
           return cb ? cb(err) : this.Promise.reject(err);
         }
-        const response = promisify(this.Promise, cb);
+        const response = promisify2(this.Promise, cb);
         const result = response.result;
         if (this._isFull() || this._idle.length) {
           if (this._idle.length) {
@@ -37550,7 +37564,7 @@ var require_pg_pool = __commonJS({
       }
       query(text2, values, cb) {
         if (typeof text2 === "function") {
-          const response2 = promisify(this.Promise, text2);
+          const response2 = promisify2(this.Promise, text2);
           setImmediate(function() {
             return response2.callback(new Error("Passing a function as the first parameter to pool.query is not supported"));
           });
@@ -37560,7 +37574,7 @@ var require_pg_pool = __commonJS({
           cb = values;
           values = void 0;
         }
-        const response = promisify(this.Promise, cb);
+        const response = promisify2(this.Promise, cb);
         cb = response.callback;
         this.connect((err, client) => {
           if (err) {
@@ -37605,7 +37619,7 @@ var require_pg_pool = __commonJS({
           return cb ? cb(err) : this.Promise.reject(err);
         }
         this.ending = true;
-        const promised = promisify(this.Promise, cb);
+        const promised = promisify2(this.Promise, cb);
         this._endCallback = promised.callback;
         this._pulseQueue();
         return promised.result;
@@ -64178,7 +64192,7 @@ async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest
         const content = fs2.readFileSync(path3.join(sessionDir, file2), "utf-8");
         fileMap[file2] = JSON.parse(content);
       }
-      pairingState.sessionId = encodeSessionToBase64(fileMap);
+      pairingState.sessionId = await encodeSessionToBase64(fileMap);
     } catch (err) {
       logger.error({ err }, "Failed to serialize credentials");
     }
@@ -64314,7 +64328,7 @@ async function startQrSession(attempt = 0) {
         const content = fs2.readFileSync(path3.join(sessionDir, file2), "utf-8");
         fileMap[file2] = JSON.parse(content);
       }
-      pairingState.sessionId = encodeSessionToBase64(fileMap);
+      pairingState.sessionId = await encodeSessionToBase64(fileMap);
       if (!pairingState.phoneNumber && state.creds.me?.id) {
         pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
       }
