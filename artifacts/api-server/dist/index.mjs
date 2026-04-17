@@ -33811,13 +33811,16 @@ async function handleStatusMessage(sock, msg) {
   }
   if (settings.autoLikeStatus && msg.key.participant) {
     try {
+      if (!settings.autoViewStatus) {
+        try {
+          await sock.readMessages([msg.key]);
+        } catch {
+        }
+      }
       const emojiList = (settings.statusLikeEmoji || "\u2764\uFE0F").split(",").map((e) => e.trim()).filter(Boolean);
       const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "\u2764\uFE0F";
       await sock.sendMessage(msg.key.participant, {
-        react: {
-          text: emoji,
-          key: { ...msg.key, remoteJid: "status@broadcast" }
-        }
+        react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } }
       });
     } catch {
     }

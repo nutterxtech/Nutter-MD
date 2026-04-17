@@ -108,24 +108,24 @@ export interface CommandContext {
 export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
   const settings = getBotSettings();
 
+  // View the status (send read receipt)
   if (settings.autoViewStatus) {
-    try {
-      await sock.readMessages([msg.key]);
-    } catch {}
+    try { await sock.readMessages([msg.key]); } catch {}
   }
 
+  // React with emoji — WhatsApp requires the status to have been read first
+  // so the reaction registers as a proper "receipt" on the status, not a DM reaction.
   if (settings.autoLikeStatus && msg.key.participant) {
     try {
+      // Implicitly view if autoViewStatus is off — required by WA protocol
+      if (!settings.autoViewStatus) {
+        try { await sock.readMessages([msg.key]); } catch {}
+      }
       const emojiList = (settings.statusLikeEmoji || "❤️")
-        .split(",")
-        .map((e) => e.trim())
-        .filter(Boolean);
+        .split(",").map((e) => e.trim()).filter(Boolean);
       const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
       await sock.sendMessage(msg.key.participant, {
-        react: {
-          text: emoji,
-          key: { ...msg.key, remoteJid: "status@broadcast" },
-        },
+        react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } },
       });
     } catch {}
   }
