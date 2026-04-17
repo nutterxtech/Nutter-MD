@@ -39407,17 +39407,6 @@ async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest
   sock.ev.on("creds.update", async () => {
     if (myGeneration !== currentGeneration) return;
     await saveCreds();
-    try {
-      const files = fs4.readdirSync(sessionDir);
-      const fileMap = {};
-      for (const file of files) {
-        const content = fs4.readFileSync(path5.join(sessionDir, file), "utf-8");
-        fileMap[file] = JSON.parse(content);
-      }
-      pairingState.sessionId = await encodeSessionToBase64(fileMap);
-    } catch (err) {
-      logger.error({ err }, "Failed to serialize credentials");
-    }
   });
   const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
   let pairCodeRequested = skipPairCodeRequest;
@@ -39443,29 +39432,51 @@ async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest
       if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info({ phoneNumber }, "WhatsApp pairing session connected");
-      let sessionId = pairingState.sessionId;
-      if (!sessionId) {
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 500));
-          if (myGeneration !== currentGeneration) return;
-          sessionId = pairingState.sessionId;
-          if (sessionId) break;
+      const jid = `${cleanNumber}@s.whatsapp.net`;
+      try {
+        await sock.sendMessage(jid, {
+          text: `*NUTTER-XMD \u2014* WhatsApp bot is now linked! \u2705
+
+\u23F3 Generating your Session ID, please wait a few seconds...`
+        });
+        logger.info({ jid }, "Sent 'linked' notification \u2014 waiting for session files to settle");
+      } catch (err) {
+        logger.warn({ err }, "Could not send 'linked' notification (non-fatal)");
+      }
+      await new Promise((r) => setTimeout(r, 6e3));
+      if (myGeneration !== currentGeneration) return;
+      let sessionId = null;
+      try {
+        const files = fs4.readdirSync(sessionDir);
+        const fileMap = {};
+        for (const file of files) {
+          try {
+            fileMap[file] = JSON.parse(fs4.readFileSync(path5.join(sessionDir, file), "utf-8"));
+          } catch {
+          }
         }
+        const sessionCount = files.filter((f) => f.startsWith("session-")).length;
+        logger.info({ total: files.length, sessionCount }, "Encoding SESSION_ID after message exchange");
+        sessionId = await encodeSessionToBase64(fileMap);
+        pairingState.sessionId = sessionId;
+      } catch (err) {
+        logger.error({ err }, "Failed to encode SESSION_ID after wait");
       }
       if (sessionId) {
-        const jid = `${cleanNumber}@s.whatsapp.net`;
-        const infoMsg = `*NUTTER-XMD \u2014* WhatsApp bot is now linked! \u2705
-
-Generating your Session ID.....once you receive it Copy it and send it to your deployer.`;
         try {
-          await sock.sendMessage(jid, { text: infoMsg });
           await sock.sendMessage(jid, { text: sessionId });
-          logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM (2 messages)");
+          logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM");
         } catch (err) {
           logger.error({ err }, "Failed to send SESSION_ID to user DM");
         }
       } else {
-        logger.error({ phoneNumber }, "SESSION_ID not available 5 s after connection \u2014 credentials may not have saved");
+        try {
+          await sock.sendMessage(jid, {
+            text: "\u26A0\uFE0F Failed to generate SESSION_ID. Please try pairing again."
+          });
+        } catch {
+        }
+        logger.error({ phoneNumber }, "SESSION_ID encoding failed \u2014 user notified");
       }
     }
     if (connection === "close") {
@@ -39543,19 +39554,8 @@ async function startQrSession(attempt = 0) {
   sock.ev.on("creds.update", async () => {
     if (myGeneration !== currentGeneration) return;
     await saveCreds();
-    try {
-      const files = fs4.readdirSync(sessionDir);
-      const fileMap = {};
-      for (const file of files) {
-        const content = fs4.readFileSync(path5.join(sessionDir, file), "utf-8");
-        fileMap[file] = JSON.parse(content);
-      }
-      pairingState.sessionId = await encodeSessionToBase64(fileMap);
-      if (!pairingState.phoneNumber && state.creds.me?.id) {
-        pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
-      }
-    } catch (err) {
-      logger.error({ err }, "Failed to serialize credentials");
+    if (!pairingState.phoneNumber && state.creds.me?.id) {
+      pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
     }
   });
   sock.ev.on("connection.update", async (update) => {
@@ -39577,30 +39577,56 @@ async function startQrSession(attempt = 0) {
       if (myGeneration !== currentGeneration) return;
       pairingState.status = "connected";
       logger.info("WhatsApp QR session connected");
-      let sessionId = pairingState.sessionId;
-      if (!sessionId) {
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 500));
-          if (myGeneration !== currentGeneration) return;
-          sessionId = pairingState.sessionId;
-          if (sessionId) break;
+      const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
+      const jid = phoneNum ? `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net` : null;
+      if (jid) {
+        try {
+          await sock.sendMessage(jid, {
+            text: `*NUTTER-XMD \u2014* WhatsApp bot is now linked! \u2705
+
+\u23F3 Generating your Session ID, please wait a few seconds...`
+          });
+          logger.info({ jid }, "Sent 'linked' notification \u2014 waiting for session files to settle");
+        } catch (err) {
+          logger.warn({ err }, "Could not send 'linked' notification (non-fatal)");
         }
       }
-      const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
-      if (sessionId && phoneNum) {
-        const jid = `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-        const infoMsg = `*NUTTER-XMD \u2014* WhatsApp bot is now linked! \u2705
-
-Generating your Session ID.....once you receive it Copy it and send it to your deployer.`;
-        try {
-          await sock.sendMessage(jid, { text: infoMsg });
-          await sock.sendMessage(jid, { text: sessionId });
-          logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM (2 messages)");
-        } catch (err) {
-          logger.error({ err }, "Failed to send SESSION_ID to user DM");
+      await new Promise((r) => setTimeout(r, 6e3));
+      if (myGeneration !== currentGeneration) return;
+      let sessionId = null;
+      try {
+        const files = fs4.readdirSync(sessionDir);
+        const fileMap = {};
+        for (const file of files) {
+          try {
+            fileMap[file] = JSON.parse(fs4.readFileSync(path5.join(sessionDir, file), "utf-8"));
+          } catch {
+          }
         }
-      } else {
-        logger.error({ phoneNum }, "SESSION_ID or phone not available after QR connection");
+        const sessionCount = files.filter((f) => f.startsWith("session-")).length;
+        logger.info({ total: files.length, sessionCount }, "Encoding SESSION_ID after message exchange");
+        sessionId = await encodeSessionToBase64(fileMap);
+        pairingState.sessionId = sessionId;
+      } catch (err) {
+        logger.error({ err }, "Failed to encode SESSION_ID after wait");
+      }
+      if (jid) {
+        if (sessionId) {
+          try {
+            await sock.sendMessage(jid, { text: sessionId });
+            logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM");
+          } catch (err) {
+            logger.error({ err }, "Failed to send SESSION_ID to user DM");
+          }
+        } else {
+          try {
+            await sock.sendMessage(jid, {
+              text: "\u26A0\uFE0F Failed to generate SESSION_ID. Please try pairing again."
+            });
+          } catch {
+          }
+          logger.error({ phoneNum }, "SESSION_ID encoding failed \u2014 user notified");
+        }
       }
     }
     if (connection === "close") {

@@ -128,20 +128,12 @@ export async function startPairingSession(
 
   setActivePairingSocket(sock);
 
+  // creds.update: only persist credentials to disk.
+  // SESSION_ID encoding is done in connection.update "open" AFTER an initial
+  // message exchange so that session-*.json files exist in the snapshot.
   sock.ev.on("creds.update", async () => {
     if (myGeneration !== currentGeneration) return;
     await saveCreds();
-    try {
-      const files = fs.readdirSync(sessionDir);
-      const fileMap: SessionFileMap = {};
-      for (const file of files) {
-        const content = fs.readFileSync(path.join(sessionDir, file), "utf-8");
-        fileMap[file] = JSON.parse(content);
-      }
-      pairingState.sessionId = await encodeSessionToBase64(fileMap);
-    } catch (err) {
-      logger.error({ err }, "Failed to serialize credentials");
-    }
   });
 
   const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
@@ -178,32 +170,61 @@ export async function startPairingSession(
       pairingState.status = "connected";
       logger.info({ phoneNumber }, "WhatsApp pairing session connected");
 
-      // creds.update (which serialises sessionId) may fire slightly after
-      // connection "open" — wait up to 5 s for the sessionId to appear.
-      let sessionId = pairingState.sessionId;
-      if (!sessionId) {
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 500));
-          if (myGeneration !== currentGeneration) return;
-          sessionId = pairingState.sessionId;
-          if (sessionId) break;
-        }
+      const jid = `${cleanNumber}@s.whatsapp.net`;
+
+      // Step 1: Send "linked" notification immediately.
+      // This outgoing DM causes Baileys to establish a Signal session with the
+      // user, writing session-*.json to disk — making the SESSION_ID useful.
+      try {
+        await sock.sendMessage(jid, {
+          text:
+            `*NUTTER-XMD —* WhatsApp bot is now linked! ✅\n\n` +
+            `⏳ Generating your Session ID, please wait a few seconds...`,
+        });
+        logger.info({ jid }, "Sent 'linked' notification — waiting for session files to settle");
+      } catch (err) {
+        logger.warn({ err }, "Could not send 'linked' notification (non-fatal)");
       }
 
+      // Step 2: Wait 6 s for Signal session negotiation + creds.update to flush.
+      // After sendMessage, Baileys writes session-*.json (the P2P Signal chain)
+      // and fires creds.update. 6 s gives the full round-trip time to complete.
+      await new Promise((r) => setTimeout(r, 6000));
+      if (myGeneration !== currentGeneration) return;
+
+      // Step 3: Read ALL current session files and encode a complete SESSION_ID.
+      let sessionId: string | null = null;
+      try {
+        const files = fs.readdirSync(sessionDir);
+        const fileMap: SessionFileMap = {};
+        for (const file of files) {
+          try {
+            fileMap[file] = JSON.parse(fs.readFileSync(path.join(sessionDir, file), "utf-8"));
+          } catch { /* skip unreadable files */ }
+        }
+        const sessionCount = files.filter((f) => f.startsWith("session-")).length;
+        logger.info({ total: files.length, sessionCount }, "Encoding SESSION_ID after message exchange");
+        sessionId = await encodeSessionToBase64(fileMap);
+        pairingState.sessionId = sessionId;
+      } catch (err) {
+        logger.error({ err }, "Failed to encode SESSION_ID after wait");
+      }
+
+      // Step 4: Send the SESSION_ID to the user (or an error if encoding failed).
       if (sessionId) {
-        const jid = `${cleanNumber}@s.whatsapp.net`;
-        const infoMsg =
-          `*NUTTER-XMD —* WhatsApp bot is now linked! ✅\n\n` +
-          `Generating your Session ID.....once you receive it Copy it and send it to your deployer.`;
         try {
-          await sock.sendMessage(jid, { text: infoMsg });
           await sock.sendMessage(jid, { text: sessionId });
-          logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM (2 messages)");
+          logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM");
         } catch (err) {
           logger.error({ err }, "Failed to send SESSION_ID to user DM");
         }
       } else {
-        logger.error({ phoneNumber }, "SESSION_ID not available 5 s after connection — credentials may not have saved");
+        try {
+          await sock.sendMessage(jid, {
+            text: "⚠️ Failed to generate SESSION_ID. Please try pairing again.",
+          });
+        } catch { /* best-effort */ }
+        logger.error({ phoneNumber }, "SESSION_ID encoding failed — user notified");
       }
     }
 
@@ -301,22 +322,15 @@ export async function startQrSession(attempt = 0): Promise<void> {
 
   setActivePairingSocket(sock);
 
+  // creds.update: only persist credentials to disk.
+  // SESSION_ID encoding is done in connection.update "open" AFTER an initial
+  // message exchange so that session-*.json files exist in the snapshot.
   sock.ev.on("creds.update", async () => {
     if (myGeneration !== currentGeneration) return;
     await saveCreds();
-    try {
-      const files = fs.readdirSync(sessionDir);
-      const fileMap: SessionFileMap = {};
-      for (const file of files) {
-        const content = fs.readFileSync(path.join(sessionDir, file), "utf-8");
-        fileMap[file] = JSON.parse(content);
-      }
-      pairingState.sessionId = await encodeSessionToBase64(fileMap);
-      if (!pairingState.phoneNumber && state.creds.me?.id) {
-        pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
-      }
-    } catch (err) {
-      logger.error({ err }, "Failed to serialize credentials");
+    // Keep phoneNumber in sync (QR flow — phone number comes from creds, not input)
+    if (!pairingState.phoneNumber && state.creds.me?.id) {
+      pairingState.phoneNumber = state.creds.me.id.split("@")[0]?.split(":")[0] ?? null;
     }
   });
 
@@ -343,32 +357,63 @@ export async function startQrSession(attempt = 0): Promise<void> {
       pairingState.status = "connected";
       logger.info("WhatsApp QR session connected");
 
-      // creds.update may fire slightly after "open" — wait up to 5 s
-      let sessionId = pairingState.sessionId;
-      if (!sessionId) {
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 500));
-          if (myGeneration !== currentGeneration) return;
-          sessionId = pairingState.sessionId;
-          if (sessionId) break;
+      const phoneNum =
+        pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
+      const jid = phoneNum ? `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net` : null;
+
+      // Step 1: Send "linked" notification — establishes the Signal DM session.
+      if (jid) {
+        try {
+          await sock.sendMessage(jid, {
+            text:
+              `*NUTTER-XMD —* WhatsApp bot is now linked! ✅\n\n` +
+              `⏳ Generating your Session ID, please wait a few seconds...`,
+          });
+          logger.info({ jid }, "Sent 'linked' notification — waiting for session files to settle");
+        } catch (err) {
+          logger.warn({ err }, "Could not send 'linked' notification (non-fatal)");
         }
       }
 
-      const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
-      if (sessionId && phoneNum) {
-        const jid = `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-        const infoMsg =
-          `*NUTTER-XMD —* WhatsApp bot is now linked! ✅\n\n` +
-          `Generating your Session ID.....once you receive it Copy it and send it to your deployer.`;
-        try {
-          await sock.sendMessage(jid, { text: infoMsg });
-          await sock.sendMessage(jid, { text: sessionId });
-          logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM (2 messages)");
-        } catch (err) {
-          logger.error({ err }, "Failed to send SESSION_ID to user DM");
+      // Step 2: Wait 6 s for Signal session negotiation + creds.update to flush.
+      await new Promise((r) => setTimeout(r, 6000));
+      if (myGeneration !== currentGeneration) return;
+
+      // Step 3: Read ALL current session files and encode a complete SESSION_ID.
+      let sessionId: string | null = null;
+      try {
+        const files = fs.readdirSync(sessionDir);
+        const fileMap: SessionFileMap = {};
+        for (const file of files) {
+          try {
+            fileMap[file] = JSON.parse(fs.readFileSync(path.join(sessionDir, file), "utf-8"));
+          } catch { /* skip unreadable files */ }
         }
-      } else {
-        logger.error({ phoneNum }, "SESSION_ID or phone not available after QR connection");
+        const sessionCount = files.filter((f) => f.startsWith("session-")).length;
+        logger.info({ total: files.length, sessionCount }, "Encoding SESSION_ID after message exchange");
+        sessionId = await encodeSessionToBase64(fileMap);
+        pairingState.sessionId = sessionId;
+      } catch (err) {
+        logger.error({ err }, "Failed to encode SESSION_ID after wait");
+      }
+
+      // Step 4: Send the SESSION_ID (or an error) to the user.
+      if (jid) {
+        if (sessionId) {
+          try {
+            await sock.sendMessage(jid, { text: sessionId });
+            logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM");
+          } catch (err) {
+            logger.error({ err }, "Failed to send SESSION_ID to user DM");
+          }
+        } else {
+          try {
+            await sock.sendMessage(jid, {
+              text: "⚠️ Failed to generate SESSION_ID. Please try pairing again.",
+            });
+          } catch { /* best-effort */ }
+          logger.error({ phoneNum }, "SESSION_ID encoding failed — user notified");
+        }
       }
     }
 
