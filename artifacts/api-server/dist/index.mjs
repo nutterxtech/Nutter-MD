@@ -64218,13 +64218,9 @@ async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest
       }
       if (sessionId) {
         const jid = `${cleanNumber}@s.whatsapp.net`;
-        const infoMsg = `*NUTTER-XMD \u2014 Your Session ID*
+        const infoMsg = `*NUTTER-XMD \u2014* WhatsApp bot is now linked! \u2705
 
-Your WhatsApp account is now linked! \u2705
-
-Your SESSION_ID is in the next message. Copy it and send it to your deployer.
-
-_Keep it private \u2014 anyone with it can control your bot._`;
+Generating your Session ID.....once you receive it Copy it and send it to your deployer.`;
         try {
           await sock.sendMessage(jid, { text: infoMsg });
           await sock.sendMessage(jid, { text: sessionId });
@@ -64357,13 +64353,9 @@ async function startQrSession(attempt = 0) {
       const phoneNum = pairingState.phoneNumber ?? state.creds.me?.id?.split("@")[0]?.split(":")[0];
       if (sessionId && phoneNum) {
         const jid = `${phoneNum.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-        const infoMsg = `*NUTTER-XMD \u2014 Your Session ID*
+        const infoMsg = `*NUTTER-XMD \u2014* WhatsApp bot is now linked! \u2705
 
-Your WhatsApp account is now linked! \u2705
-
-Your SESSION_ID is in the next message. Copy it and send it to your deployer.
-
-_Keep it private \u2014 anyone with it can control your bot._`;
+Generating your Session ID.....once you receive it Copy it and send it to your deployer.`;
         try {
           await sock.sendMessage(jid, { text: infoMsg });
           await sock.sendMessage(jid, { text: sessionId });
