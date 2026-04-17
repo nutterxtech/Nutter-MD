@@ -141,9 +141,14 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
         const badWordList = groupSettings.customBadWords
           ? groupSettings.customBadWords.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean)
           : DEFAULT_BAD_WORDS;
-        if (groupSettings.antibadword && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
+        if (groupSettings.antibadword !== "off" && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
           await sock.sendMessage(jid, { delete: msgKey });
-          await sock.sendMessage(jid, { text: "Bad language is not allowed." });
+          if (groupSettings.antibadword === "kick") {
+            await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
+            await sock.sendMessage(jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
+          } else {
+            await sock.sendMessage(jid, { text: "Bad language is not allowed." });
+          }
           return;
         }
         if (groupSettings.antimention && !isOwner && !isSenderGroupAdmin) {

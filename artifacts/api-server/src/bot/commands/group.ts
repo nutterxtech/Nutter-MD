@@ -107,13 +107,25 @@ export async function handleAntibadword(sock: WASocket, _msg: proto.IWebMessageI
     return;
   }
   const raw = args[0]?.toLowerCase();
-  if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: "Usage: .antibadword on | .antibadword off" });
+  const VALID = ["on", "true", "delete", "kick", "off", "false"];
+  if (!raw || !VALID.includes(raw)) {
+    await sock.sendMessage(ctx.jid, {
+      text:
+        `Usage:\n` +
+        `.antibadword delete — Delete bad messages\n` +
+        `.antibadword kick   — Delete + kick the sender\n` +
+        `.antibadword off    — Disable\n` +
+        `\nCurrent: ${ensureGroupSettings(ctx.jid).antibadword}`,
+    });
     return;
   }
-  const state = raw === "on";
-  updateGroupSettings(ctx.jid, { antibadword: state });
-  await sock.sendMessage(ctx.jid, { text: `Antibadword is now ${state ? "ON" : "OFF"}.` });
+  let mode: "off" | "delete" | "kick";
+  if (raw === "off" || raw === "false") mode = "off";
+  else if (raw === "kick") mode = "kick";
+  else mode = "delete";
+  updateGroupSettings(ctx.jid, { antibadword: mode });
+  const label = mode === "off" ? "OFF" : mode === "kick" ? "ON — Delete + Kick" : "ON — Delete only";
+  await sock.sendMessage(ctx.jid, { text: `Antibadword is now *${label}*.` });
 }
 
 export async function handleSetBadWords(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {

@@ -4379,7 +4379,7 @@ function ensureGroupSettings(groupId) {
     groupStore.set(groupId, {
       groupId,
       antilink: process.env["ANTI_LINK"] === "true",
-      antibadword: process.env["ANTI_BAD_WORD"] === "true",
+      antibadword: process.env["ANTI_BAD_WORD"] === "true" ? "delete" : "off",
       customBadWords: null,
       antimention: process.env["ANTI_MENTION"] === "true",
       mute: false,
@@ -5202,7 +5202,7 @@ ${prefix}demote @user \u2014 Remove admin
 ${prefix}mute \u2014 Mute group (admins only can chat)
 ${prefix}unmute \u2014 Unmute group
 ${prefix}antilink on/off \u2014 Block links
-${prefix}antibadword on/off \u2014 Block bad words
+${prefix}antibadword delete/kick/off \u2014 Block bad words
 ${prefix}setbadwords <w1,w2> \u2014 Set custom bad words list
 ${prefix}setbadwords list \u2014 Show current bad words
 ${prefix}setbadwords reset \u2014 Restore default list
@@ -5467,13 +5467,25 @@ async function handleAntibadword(sock, _msg, ctx, args) {
     return;
   }
   const raw = args[0]?.toLowerCase();
-  if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: "Usage: .antibadword on | .antibadword off" });
+  const VALID = ["on", "true", "delete", "kick", "off", "false"];
+  if (!raw || !VALID.includes(raw)) {
+    await sock.sendMessage(ctx.jid, {
+      text: `Usage:
+.antibadword delete \u2014 Delete bad messages
+.antibadword kick   \u2014 Delete + kick the sender
+.antibadword off    \u2014 Disable
+
+Current: ${ensureGroupSettings(ctx.jid).antibadword}`
+    });
     return;
   }
-  const state = raw === "on";
-  updateGroupSettings(ctx.jid, { antibadword: state });
-  await sock.sendMessage(ctx.jid, { text: `Antibadword is now ${state ? "ON" : "OFF"}.` });
+  let mode;
+  if (raw === "off" || raw === "false") mode = "off";
+  else if (raw === "kick") mode = "kick";
+  else mode = "delete";
+  updateGroupSettings(ctx.jid, { antibadword: mode });
+  const label = mode === "off" ? "OFF" : mode === "kick" ? "ON \u2014 Delete + Kick" : "ON \u2014 Delete only";
+  await sock.sendMessage(ctx.jid, { text: `Antibadword is now *${label}*.` });
 }
 async function handleSetBadWords(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
@@ -5839,9 +5851,14 @@ async function handleMessage(sock, msg) {
           return;
         }
         const badWordList = groupSettings.customBadWords ? groupSettings.customBadWords.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean) : DEFAULT_BAD_WORDS;
-        if (groupSettings.antibadword && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
+        if (groupSettings.antibadword !== "off" && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
           await sock.sendMessage(jid, { delete: msgKey });
-          await sock.sendMessage(jid, { text: "Bad language is not allowed." });
+          if (groupSettings.antibadword === "kick") {
+            await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
+            await sock.sendMessage(jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
+          } else {
+            await sock.sendMessage(jid, { text: "Bad language is not allowed." });
+          }
           return;
         }
         if (groupSettings.antimention && !isOwner && !isSenderGroupAdmin) {

@@ -44,7 +44,7 @@ export async function handleMenu(sock: WASocket, _msg: proto.IWebMessageInfo, ct
     `${prefix}mute — Mute group (admins only can chat)\n` +
     `${prefix}unmute — Unmute group\n` +
     `${prefix}antilink on/off — Block links\n` +
-    `${prefix}antibadword on/off — Block bad words\n` +
+    `${prefix}antibadword delete/kick/off — Block bad words\n` +
     `${prefix}setbadwords <w1,w2> — Set custom bad words list\n` +
     `${prefix}setbadwords list — Show current bad words\n` +
     `${prefix}setbadwords reset — Restore default list\n` +

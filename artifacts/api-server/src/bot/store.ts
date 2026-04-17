@@ -1,7 +1,7 @@
 export interface GroupSettings {
   groupId: string;
   antilink: boolean;
-  antibadword: boolean;
+  antibadword: "off" | "delete" | "kick";
   customBadWords: string | null;
   antimention: boolean;
   mute: boolean;
@@ -34,7 +34,7 @@ export function ensureGroupSettings(groupId: string): GroupSettings {
     groupStore.set(groupId, {
       groupId,
       antilink:      process.env["ANTI_LINK"]     === "true",
-      antibadword:   process.env["ANTI_BAD_WORD"] === "true",
+      antibadword:   (process.env["ANTI_BAD_WORD"] === "true" ? "delete" : "off") as "off" | "delete" | "kick",
       customBadWords: null,
       antimention:   process.env["ANTI_MENTION"]  === "true",
       mute: false,
