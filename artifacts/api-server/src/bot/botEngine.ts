@@ -3,7 +3,7 @@ import { Boom } from "@hapi/boom";
 import { logger } from "../lib/logger";
 import { loadSessionFromEnv } from "./session";
 import { handleMessage, handleStatusMessage, handleGroupParticipantsUpdate, populateGroupMetaCache, upsertGroupMetaCache } from "./handler";
-import { cacheMessage, popCachedMessage, getGroupSettings, getBotSettings } from "./store";
+import { cacheMessage, popCachedMessage, getGroupSettings, getBotSettings, registerLidMapping } from "./store";
 import type { WASocket } from "@whiskeysockets/baileys";
 
 const MAX_RECONNECTS = 2;
@@ -145,6 +145,25 @@ async function connectBot(sessionAuth: {
   });
 
   sock.ev.on("creds.update", sessionAuth.saveCreds);
+
+  // ── LID → JID mapping ────────────────────────────────────────────────────────
+  // WhatsApp privacy mode delivers DMs with @lid remoteJids.  Baileys fires
+  // contacts.upsert with {id: realJid, lid: lidJid} both on first connect (bulk)
+  // and whenever a new contact is seen.  We persist the mapping so handleMessage
+  // can resolve the @lid to the real @s.whatsapp.net JID before calling
+  // sock.sendMessage — sending to a @lid JID hangs after the first attempt.
+  sock.ev.on("contacts.upsert", (contacts) => {
+    let mapped = 0;
+    for (const contact of contacts) {
+      if (contact.lid && contact.id) {
+        registerLidMapping(contact.lid, contact.id);
+        mapped++;
+      }
+    }
+    if (mapped > 0) {
+      logger.info({ mapped }, "📇 LID→JID mappings registered from contacts.upsert");
+    }
+  });
 
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;

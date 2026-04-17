@@ -111,3 +111,28 @@ export function popCachedMessage(id: string): proto.IWebMessageInfo | null {
   msgCache.delete(id);
   return entry.expireAt >= Date.now() ? entry.msg : null;
 }
+
+// ── LID ↔ JID mapping ─────────────────────────────────────────────────────────
+// WhatsApp's privacy-preserving "Linked IDs" (e.g. 230022023483514@lid) appear
+// as msg.key.remoteJid in DMs on newer WA versions.  Outgoing sock.sendMessage
+// calls MUST use the real @s.whatsapp.net JID — sending to @lid works only the
+// very first time (Baileys does an in-memory lookup), then silently hangs on
+// subsequent calls because the LID→device resolution requires a server round-trip
+// that never ACKs correctly.
+//
+// We populate this map from contacts.upsert events (fired on connect + whenever
+// a new contact is seen) so we always have the real JID ready before replying.
+const lidToJidMap = new Map<string, string>();
+
+export function registerLidMapping(lidJid: string, realJid: string) {
+  lidToJidMap.set(lidJid, realJid);
+}
+
+/**
+ * Resolve a @lid JID to the actual @s.whatsapp.net JID.
+ * Returns the original JID unchanged if no mapping is known yet.
+ */
+export function resolveLid(jid: string): string {
+  if (!jid.endsWith("@lid")) return jid;
+  return lidToJidMap.get(jid) ?? jid;
+}

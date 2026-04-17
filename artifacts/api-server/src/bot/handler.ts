@@ -1,6 +1,6 @@
 import type { WASocket, WAMessageKey, proto } from "@whiskeysockets/baileys";
 import type { GroupSettings } from "./store";
-import { getGroupSettings, getUserSettings, getBotSettings, updateBotSettings } from "./store";
+import { getGroupSettings, getUserSettings, getBotSettings, updateBotSettings, resolveLid } from "./store";
 import { logger } from "../lib/logger";
 import {
   handlePing,
@@ -327,13 +327,24 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
+  // Resolve @lid JIDs to the real @s.whatsapp.net JID for outgoing sendMessage
+  // calls. Sending to a @lid JID works only the very first time (Baileys resolves
+  // in-memory); subsequent calls silently hang because the LID→device lookup needs
+  // a WA server round-trip that never ACKs. resolveLid() uses the LID map that
+  // contacts.upsert populates on connect — if the mapping hasn't arrived yet the
+  // original lid JID is used as fallback (same behaviour as before this fix).
+  const replyJid = isGroup ? jid : resolveLid(jid);
+  if (replyJid !== jid) {
+    logger.info({ lid: jid, resolved: replyJid }, "🔀 @lid resolved to real JID for reply");
+  }
+
   const userSettings = getUserSettings(senderJid);
   if (userSettings?.isBanned && !isOwner) {
-    await sock.sendMessage(jid, { text: "You are banned from using this bot." });
+    await sock.sendMessage(replyJid, { text: "You are banned from using this bot." });
     return;
   }
 
-  const ctx: CommandContext = { jid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
+  const ctx: CommandContext = { jid: replyJid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
   // Split on any whitespace and drop empty tokens so ".cmd  arg" works like ".cmd arg"
   const parts = commandText.split(/\s+/).filter(Boolean);

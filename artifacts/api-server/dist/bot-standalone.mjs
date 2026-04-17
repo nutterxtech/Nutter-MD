@@ -5227,6 +5227,14 @@ function popCachedMessage(id) {
   msgCache.delete(id);
   return entry.expireAt >= Date.now() ? entry.msg : null;
 }
+var lidToJidMap = /* @__PURE__ */ new Map();
+function registerLidMapping(lidJid, realJid) {
+  lidToJidMap.set(lidJid, realJid);
+}
+function resolveLid(jid) {
+  if (!jid.endsWith("@lid")) return jid;
+  return lidToJidMap.get(jid) ?? jid;
+}
 
 // src/bot/commands/general.ts
 import fs2 from "fs";
@@ -6171,12 +6179,16 @@ async function handleMessage(sock, msg) {
     }
     return;
   }
+  const replyJid = isGroup ? jid : resolveLid(jid);
+  if (replyJid !== jid) {
+    logger.info({ lid: jid, resolved: replyJid }, "\u{1F500} @lid resolved to real JID for reply");
+  }
   const userSettings = getUserSettings(senderJid);
   if (userSettings?.isBanned && !isOwner) {
-    await sock.sendMessage(jid, { text: "You are banned from using this bot." });
+    await sock.sendMessage(replyJid, { text: "You are banned from using this bot." });
     return;
   }
-  const ctx = { jid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
+  const ctx = { jid: replyJid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
   const parts = commandText.split(/\s+/).filter(Boolean);
   const [command = "", ...args] = parts;
@@ -6429,6 +6441,18 @@ async function connectBot(sessionAuth) {
     }
   });
   sock.ev.on("creds.update", sessionAuth.saveCreds);
+  sock.ev.on("contacts.upsert", (contacts) => {
+    let mapped = 0;
+    for (const contact of contacts) {
+      if (contact.lid && contact.id) {
+        registerLidMapping(contact.lid, contact.id);
+        mapped++;
+      }
+    }
+    if (mapped > 0) {
+      logger.info({ mapped }, "\u{1F4C7} LID\u2192JID mappings registered from contacts.upsert");
+    }
+  });
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
     if (connection === "open") {

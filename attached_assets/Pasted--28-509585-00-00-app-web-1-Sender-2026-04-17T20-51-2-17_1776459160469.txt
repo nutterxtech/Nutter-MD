@@ -1,0 +1,66 @@
+:28.509585+00:00 app[web.1]: 👤 Sender: [𝙽𝚞𝚝𝚝𝚎𝚛𝚡 𝚃𝚎𝚌𝚑𝚗𝚘𝚕𝚘𝚐𝚒𝚎𝚜]
+2026-04-17T20:51:28.509594+00:00 app[web.1]: 🆔 JID: 230022023483514
+2026-04-17T20:51:28.509605+00:00 app[web.1]: 📋 Message Type: conversation
+2026-04-17T20:51:28.509613+00:00 app[web.1]: 
+2026-04-17T20:51:28.510393+00:00 app[web.1]: {"level":30,"time":1776459088509,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","jidType":"lid","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:51:28.510394+00:00 app[web.1]: {"level":30,"time":1776459088509,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","fromMe":false,"msgKeys":["conversation","messageContextInfo"],"msg":"📩 handleMessage reached"}
+2026-04-17T20:51:28.510394+00:00 app[web.1]: {"level":30,"time":1776459088509,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","prefix":".","hasPrefix":true,"bodyPreview":".alive","msg":"📝 Body extracted"}
+2026-04-17T20:51:28.510394+00:00 app[web.1]: {"level":30,"time":1776459088509,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","cmd":"alive","jid":"230022023483514@lid","sender":"230022023483514","isOwner":false,"msg":"Command received"}
+2026-04-17T20:51:28.999081+00:00 app[web.1]: {"level":30,"time":1776459088998,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:51:28.999196+00:00 app[web.1]: {"level":30,"time":1776459088999,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.768367+00:00 app[web.1]: {"level":30,"time":1776459148768,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.769592+00:00 app[web.1]: {"level":30,"time":1776459148768,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","stubType":2,"jid":"status@broadcast","msg":"↩ Protocol notification — skipped"}
+2026-04-17T20:52:28.771809+00:00 app[web.1]: {"level":30,"time":1776459148771,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.772045+00:00 app[web.1]: 	 ✦ ✦ ✦ { N U T T E R - X M D } ✦ ✦ ✦
+2026-04-17T20:52:28.772071+00:00 app[web.1]: ╔════════════════════════════╗
+2026-04-17T20:52:28.772081+00:00 app[web.1]: ║ ✉   N E W   M E S S A G E   ✉ ║
+2026-04-17T20:52:28.772089+00:00 app[web.1]: ╚════════════════════════════╝
+2026-04-17T20:52:28.772098+00:00 app[web.1]: 💬 Direct Message
+2026-04-17T20:52:28.772110+00:00 app[web.1]: 👤 Sender: [𝙽𝚞𝚝𝚝𝚎𝚛𝚡 𝚃𝚎𝚌𝚑𝚗𝚘𝚕𝚘𝚐𝚒𝚎𝚜]
+2026-04-17T20:52:28.772111+00:00 app[web.1]: 🆔 JID: 230022023483514
+2026-04-17T20:52:28.772122+00:00 app[web.1]: 📋 Message Type: conversation
+2026-04-17T20:52:28.772124+00:00 app[web.1]: 
+2026-04-17T20:52:28.772240+00:00 app[web.1]: {"level":30,"time":1776459148771,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","jidType":"lid","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.772241+00:00 app[web.1]: {"level":30,"time":1776459148771,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","fromMe":false,"msgKeys":["conversation","messageContextInfo"],"msg":"📩 handleMessage reached"}
+2026-04-17T20:52:28.772241+00:00 app[web.1]: {"level":30,"time":1776459148772,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","prefix":".","hasPrefix":true,"bodyPreview":".test","msg":"📝 Body extracted"}
+2026-04-17T20:52:28.772241+00:00 app[web.1]: {"level":30,"time":1776459148772,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","cmd":"test","jid":"230022023483514@lid","sender":"230022023483514","isOwner":false,"msg":"Command received"}
+2026-04-17T20:52:28.777504+00:00 app[web.1]: {"level":30,"time":1776459148777,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.778439+00:00 app[web.1]: {"level":30,"time":1776459148777,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.797649+00:00 app[web.1]: {"level":30,"time":1776459148797,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.798224+00:00 app[web.1]: {"level":30,"time":1776459148797,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.799679+00:00 app[web.1]: {"level":30,"time":1776459148799,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.800895+00:00 app[web.1]: 	 ✦ ✦ ✦ { N U T T E R - X M D } ✦ ✦ ✦
+2026-04-17T20:52:28.800923+00:00 app[web.1]: ╔════════════════════════════╗
+2026-04-17T20:52:28.800931+00:00 app[web.1]: ║ ✉   N E W   M E S S A G E   ✉ ║
+2026-04-17T20:52:28.800938+00:00 app[web.1]: ╚════════════════════════════╝
+2026-04-17T20:52:28.800946+00:00 app[web.1]: 💬 Direct Message
+2026-04-17T20:52:28.800953+00:00 app[web.1]: 👤 Sender: [𝙽𝚞𝚝𝚝𝚎𝚛𝚡 𝚃𝚎𝚌𝚑𝚗𝚘𝚕𝚘𝚐𝚒𝚎𝚜]
+2026-04-17T20:52:28.800955+00:00 app[web.1]: 🆔 JID: 230022023483514
+2026-04-17T20:52:28.800979+00:00 app[web.1]: 📋 Message Type: conversation
+2026-04-17T20:52:28.800995+00:00 app[web.1]: 
+2026-04-17T20:52:28.816018+00:00 app[web.1]: {"level":30,"time":1776459148799,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","jidType":"lid","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.816020+00:00 app[web.1]: {"level":30,"time":1776459148800,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","fromMe":false,"msgKeys":["conversation","messageContextInfo"],"msg":"📩 handleMessage reached"}
+2026-04-17T20:52:28.816021+00:00 app[web.1]: {"level":30,"time":1776459148801,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","prefix":".","hasPrefix":true,"bodyPreview":".menu","msg":"📝 Body extracted"}
+2026-04-17T20:52:28.816021+00:00 app[web.1]: {"level":30,"time":1776459148801,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","cmd":"menu","jid":"230022023483514@lid","sender":"230022023483514","isOwner":false,"msg":"Command received"}
+2026-04-17T20:52:28.862909+00:00 app[web.1]: {"level":30,"time":1776459148862,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.864472+00:00 app[web.1]: 	 ✦ ✦ ✦ { N U T T E R - X M D } ✦ ✦ ✦
+2026-04-17T20:52:28.864490+00:00 app[web.1]: ╔════════════════════════════╗
+2026-04-17T20:52:28.864504+00:00 app[web.1]: ║ ✉   N E W   M E S S A G E   ✉ ║
+2026-04-17T20:52:28.864515+00:00 app[web.1]: ╚════════════════════════════╝
+2026-04-17T20:52:28.864528+00:00 app[web.1]: 💬 Direct Message
+2026-04-17T20:52:28.864540+00:00 app[web.1]: 👤 Sender: [𝙽𝚞𝚝𝚝𝚎𝚛𝚡 𝚃𝚎𝚌𝚑𝚗𝚘𝚕𝚘𝚐𝚒𝚎𝚜]
+2026-04-17T20:52:28.864553+00:00 app[web.1]: 🆔 JID: 230022023483514
+2026-04-17T20:52:28.864564+00:00 app[web.1]: 📋 Message Type: conversation
+2026-04-17T20:52:28.864576+00:00 app[web.1]: 
+2026-04-17T20:52:28.865082+00:00 app[web.1]: {"level":30,"time":1776459148862,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","jidType":"lid","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.865083+00:00 app[web.1]: {"level":30,"time":1776459148864,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","fromMe":false,"msgKeys":["conversation","messageContextInfo"],"msg":"📩 handleMessage reached"}
+2026-04-17T20:52:28.865084+00:00 app[web.1]: {"level":30,"time":1776459148864,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"230022023483514@lid","prefix":".","hasPrefix":true,"bodyPreview":".ping","msg":"📝 Body extracted"}
+2026-04-17T20:52:28.865084+00:00 app[web.1]: {"level":30,"time":1776459148864,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","cmd":"ping","jid":"230022023483514@lid","sender":"230022023483514","isOwner":false,"msg":"Command received"}
+2026-04-17T20:52:28.880071+00:00 app[web.1]: {"level":30,"time":1776459148879,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.883065+00:00 app[web.1]: {"level":30,"time":1776459148880,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.894055+00:00 app[web.1]: {"level":30,"time":1776459148893,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.895993+00:00 app[web.1]: {"level":30,"time":1776459148894,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.916231+00:00 app[web.1]: {"level":30,"time":1776459148916,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.917183+00:00 app[web.1]: {"level":30,"time":1776459148916,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
+2026-04-17T20:52:28.933806+00:00 app[web.1]: {"level":30,"time":1776459148933,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T20:52:28.935310+00:00 app[web.1]: {"level":30,"time":1776459148933,"pid":4,"hostname":"faed2c6c-3107-43d8-86d4-7f265b2cfeb3","jid":"status@broadcast","jidType":"broadcast","fromMe":false,"msg":"➡️ Dispatching message"}
