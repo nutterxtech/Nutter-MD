@@ -28458,7 +28458,13 @@ async function loadSessionFromEnv() {
   }
 }
 async function encodeSessionToBase64(fileMap) {
-  const json3 = Buffer.from(JSON.stringify(fileMap), "utf-8");
+  const essential = {};
+  if (fileMap["creds.json"] !== void 0) {
+    essential["creds.json"] = fileMap["creds.json"];
+  } else {
+    Object.assign(essential, fileMap);
+  }
+  const json3 = Buffer.from(JSON.stringify(essential), "utf-8");
   const compressed = await gzip(json3);
   return compressed.toString("base64");
 }

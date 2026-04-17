@@ -57,7 +57,18 @@ export async function loadSessionFromEnv(): Promise<{
 }
 
 export async function encodeSessionToBase64(fileMap: SessionFileMap): Promise<string> {
-  const json = Buffer.from(JSON.stringify(fileMap), "utf-8");
+  // Only creds.json is needed to re-authenticate. All Signal protocol state
+  // files (pre-keys, sessions, sender-keys) are rebuilt automatically by
+  // Baileys as the bot interacts with WhatsApp. Storing only creds.json
+  // keeps the SESSION_ID tiny enough to fit in Heroku's 64 kB config var limit.
+  const essential: SessionFileMap = {};
+  if (fileMap["creds.json"] !== undefined) {
+    essential["creds.json"] = fileMap["creds.json"];
+  } else {
+    // Fallback: include everything if creds.json isn't found by that name
+    Object.assign(essential, fileMap);
+  }
+  const json = Buffer.from(JSON.stringify(essential), "utf-8");
   const compressed = await gzip(json);
   return compressed.toString("base64");
 }
