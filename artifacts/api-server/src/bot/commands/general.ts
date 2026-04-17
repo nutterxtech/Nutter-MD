@@ -1,5 +1,6 @@
 import type { WASocket, proto } from "@whiskeysockets/baileys";
 import type { CommandContext } from "../handler";
+import { getBotSettings } from "../store";
 import { logger } from "../../lib/logger";
 
 export async function handlePing(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
@@ -79,7 +80,6 @@ export async function handleOwner(sock: WASocket, _msg: proto.IWebMessageInfo, c
 }
 
 export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
-  const { getBotSettings } = await import("../store");
   const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
   const ownerNumber = process.env["OWNER_NUMBER"] || "Not set";
   const mode = (process.env["BOT_MODE"] || "public").toLowerCase();

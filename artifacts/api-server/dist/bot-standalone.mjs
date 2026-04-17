@@ -5177,6 +5177,7 @@ async function loadSessionFromEnv() {
 init_store();
 
 // src/bot/commands/general.ts
+init_store();
 async function handlePing(sock, msg, ctx) {
   const start = Date.now();
   await sock.sendMessage(ctx.jid, { text: "\u{1F3D3} Pong!" });
@@ -5264,11 +5265,10 @@ END:VCARD`, displayName: "NUTTER-XMD Owner" }]
   });
 }
 async function handleSettings(sock, _msg, ctx, prefix) {
-  const { getBotSettings: getBotSettings2 } = await Promise.resolve().then(() => (init_store(), store_exports));
   const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
   const ownerNumber = process.env["OWNER_NUMBER"] || "Not set";
   const mode = (process.env["BOT_MODE"] || "public").toLowerCase();
-  const bs = getBotSettings2();
+  const bs = getBotSettings();
   const botInfo = `*${botName} Settings*
 
 *General*
@@ -5831,6 +5831,20 @@ ${ctx.prefix}autoreply list`
 // src/bot/handler.ts
 var DEFAULT_BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
 var URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
+var groupMetaCache = /* @__PURE__ */ new Map();
+var GROUP_META_TTL = 2 * 60 * 1e3;
+async function getCachedGroupMeta(sock, jid) {
+  const cached = groupMetaCache.get(jid);
+  if (cached && cached.expireAt > Date.now()) return cached;
+  const meta = await sock.groupMetadata(jid);
+  const entry = {
+    subject: meta.subject,
+    participants: meta.participants,
+    expireAt: Date.now() + GROUP_META_TTL
+  };
+  groupMetaCache.set(jid, entry);
+  return entry;
+}
 function printMessageActivity(opts) {
   const botName = (process.env["BOT_NAME"] || "NUTTER-XMD").toUpperCase().split("").join(" ");
   const border = "\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557";
@@ -5884,11 +5898,13 @@ async function handleMessage(sock, msg) {
   const senderJid = isGroup ? msg.key.participant || botJidFull : msg.key.fromMe ? botJidFull : jid;
   const senderNumber = senderJid.split(":")[0].split("@")[0];
   const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
-  const botMode = (process.env["BOT_MODE"] || "public").toLowerCase();
-  if (botMode === "private" && !isOwner) return;
-  const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || msg.message?.documentMessage?.caption || msg.message?.buttonsResponseMessage?.selectedButtonId || msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId || msg.message?.templateButtonReplyMessage?.selectedId || "";
   const msgType = Object.keys(msg.message || {})[0] || "unknown";
-  if (!body) return;
+  const botMode = (process.env["BOT_MODE"] || "public").toLowerCase();
+  if (botMode === "private" && !isOwner) {
+    logger.info({ jid, sender: senderNumber, msgType }, "Skipped \u2014 private mode, sender is not owner");
+    return;
+  }
+  const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || msg.message?.documentMessage?.caption || msg.message?.buttonsResponseMessage?.selectedButtonId || msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId || msg.message?.templateButtonReplyMessage?.selectedId || "";
   let groupSettings = null;
   let isSenderGroupAdmin = false;
   let isBotGroupAdmin = false;
@@ -5898,22 +5914,19 @@ async function handleMessage(sock, msg) {
   if (isGroup) {
     try {
       groupSettings = getGroupSettings(jid);
-      if (groupSettings?.customPrefix) {
-        prefix = groupSettings.customPrefix;
-      }
-      const groupMeta = await sock.groupMetadata(jid);
+      if (groupSettings?.customPrefix) prefix = groupSettings.customPrefix;
+      const groupMeta = await getCachedGroupMeta(sock, jid);
       groupName = groupMeta.subject;
       groupNumber = jid.split("@")[0];
       const botNumber = botJidFull.split(":")[0].split("@")[0];
-      const senderNum = senderNumber;
       for (const participant of groupMeta.participants) {
-        const participantNumber = participant.id.split(":")[0].split("@")[0];
+        const pNum = participant.id.split(":")[0].split("@")[0];
         const isAdmin = participant.admin === "admin" || participant.admin === "superadmin";
-        if (participantNumber === senderNum && isAdmin) isSenderGroupAdmin = true;
-        if (participantNumber === botNumber && isAdmin) isBotGroupAdmin = true;
+        if (pNum === senderNumber) isSenderGroupAdmin = isAdmin;
+        if (pNum === botNumber) isBotGroupAdmin = isAdmin;
       }
       const msgKey = msg.key;
-      if (groupSettings) {
+      if (groupSettings && body) {
         if (groupSettings.antilink && !isOwner && !isSenderGroupAdmin && URL_REGEX.test(body)) {
           await sock.sendMessage(jid, { delete: msgKey });
           await sock.sendMessage(jid, { text: "Links are not allowed in this group." });
@@ -5940,7 +5953,7 @@ async function handleMessage(sock, msg) {
         }
       }
     } catch (err) {
-      logger.warn({ err }, "Failed to fetch group metadata");
+      logger.warn({ err, jid }, "Failed to fetch group metadata \u2014 continuing without admin info");
     }
   }
   printMessageActivity({
@@ -5951,6 +5964,10 @@ async function handleMessage(sock, msg) {
     groupName,
     groupNumber
   });
+  if (!body) {
+    logger.info({ jid, msgType }, "No text body \u2014 skipped command processing");
+    return;
+  }
   if (!body.startsWith(prefix)) {
     if (isGroup && groupSettings?.autoReply) {
       try {
@@ -5974,7 +5991,8 @@ async function handleMessage(sock, msg) {
   }
   const ctx = { jid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
-  const [command, ...args] = commandText.split(" ");
+  const parts = commandText.split(/\s+/).filter(Boolean);
+  const [command = "", ...args] = parts;
   const cmd = command.toLowerCase();
   logger.info({ cmd, jid, sender: senderNumber, isOwner }, "Command received");
   switch (cmd) {

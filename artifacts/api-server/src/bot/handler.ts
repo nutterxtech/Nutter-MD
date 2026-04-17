@@ -36,6 +36,32 @@ import {
 const DEFAULT_BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
 const URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
 
+// ── Group metadata cache — avoids an API call on every group message ───────────
+interface GroupMetaEntry {
+  subject: string;
+  participants: Array<{ id: string; admin?: "admin" | "superadmin" | null }>;
+  expireAt: number;
+}
+const groupMetaCache = new Map<string, GroupMetaEntry>();
+const GROUP_META_TTL = 2 * 60 * 1000; // 2 minutes
+
+async function getCachedGroupMeta(sock: WASocket, jid: string): Promise<GroupMetaEntry> {
+  const cached = groupMetaCache.get(jid);
+  if (cached && cached.expireAt > Date.now()) return cached;
+  const meta = await sock.groupMetadata(jid);
+  const entry: GroupMetaEntry = {
+    subject: meta.subject,
+    participants: meta.participants as GroupMetaEntry["participants"],
+    expireAt: Date.now() + GROUP_META_TTL,
+  };
+  groupMetaCache.set(jid, entry);
+  return entry;
+}
+
+export function invalidateGroupMetaCache(jid: string) {
+  groupMetaCache.delete(jid);
+}
+
 function printMessageActivity(opts: {
   msgType: string;
   pushName: string;
@@ -129,8 +155,13 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   const senderNumber = senderJid.split(":")[0].split("@")[0];
   const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
 
+  const msgType = Object.keys(msg.message || {})[0] || "unknown";
+
   const botMode = (process.env["BOT_MODE"] || "public").toLowerCase();
-  if (botMode === "private" && !isOwner) return;
+  if (botMode === "private" && !isOwner) {
+    logger.info({ jid, sender: senderNumber, msgType }, "Skipped — private mode, sender is not owner");
+    return;
+  }
 
   const body =
     msg.message?.conversation ||
@@ -143,10 +174,6 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     msg.message?.templateButtonReplyMessage?.selectedId ||
     "";
 
-  const msgType = Object.keys(msg.message || {})[0] || "unknown";
-
-  if (!body) return;
-
   let groupSettings: GroupSettings | null = null;
   let isSenderGroupAdmin = false;
   let isBotGroupAdmin = false;
@@ -157,26 +184,23 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   if (isGroup) {
     try {
       groupSettings = getGroupSettings(jid);
+      if (groupSettings?.customPrefix) prefix = groupSettings.customPrefix;
 
-      if (groupSettings?.customPrefix) {
-        prefix = groupSettings.customPrefix;
-      }
-
-      const groupMeta = await sock.groupMetadata(jid);
+      // Use cached group metadata — avoids an API call on every message
+      const groupMeta = await getCachedGroupMeta(sock, jid);
       groupName = groupMeta.subject;
       groupNumber = jid.split("@")[0];
       const botNumber = botJidFull.split(":")[0].split("@")[0];
-      const senderNum = senderNumber;
 
       for (const participant of groupMeta.participants) {
-        const participantNumber = participant.id.split(":")[0].split("@")[0];
+        const pNum = participant.id.split(":")[0].split("@")[0];
         const isAdmin = participant.admin === "admin" || participant.admin === "superadmin";
-        if (participantNumber === senderNum && isAdmin) isSenderGroupAdmin = true;
-        if (participantNumber === botNumber && isAdmin) isBotGroupAdmin = true;
+        if (pNum === senderNumber) isSenderGroupAdmin = isAdmin;
+        if (pNum === botNumber)   isBotGroupAdmin = isAdmin;
       }
 
       const msgKey = msg.key as WAMessageKey;
-      if (groupSettings) {
+      if (groupSettings && body) {
         if (groupSettings.antilink && !isOwner && !isSenderGroupAdmin && URL_REGEX.test(body)) {
           await sock.sendMessage(jid, { delete: msgKey });
           await sock.sendMessage(jid, { text: "Links are not allowed in this group." });
@@ -205,10 +229,11 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
         }
       }
     } catch (err) {
-      logger.warn({ err }, "Failed to fetch group metadata");
+      logger.warn({ err, jid }, "Failed to fetch group metadata — continuing without admin info");
     }
   }
 
+  // Always log the activity (even non-command messages) so we can see traffic in logs
   printMessageActivity({
     msgType,
     pushName: msg.pushName || "",
@@ -217,6 +242,11 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     groupName,
     groupNumber,
   });
+
+  if (!body) {
+    logger.info({ jid, msgType }, "No text body — skipped command processing");
+    return;
+  }
 
   if (!body.startsWith(prefix)) {
     if (isGroup && groupSettings?.autoReply) {
@@ -244,7 +274,9 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
 
   const ctx: CommandContext = { jid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
-  const [command, ...args] = commandText.split(" ");
+  // Split on any whitespace and drop empty tokens so ".cmd  arg" works like ".cmd arg"
+  const parts = commandText.split(/\s+/).filter(Boolean);
+  const [command = "", ...args] = parts;
   const cmd = command.toLowerCase();
 
   logger.info({ cmd, jid, sender: senderNumber, isOwner }, "Command received");
