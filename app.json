@@ -5,6 +5,7 @@
   "website": "https://github.com/nutterxtech/Nutter-MD",
   "repository": "https://github.com/nutterxtech/Nutter-MD",
   "logo": "https://raw.githubusercontent.com/nutterxtech/NUTTER-XMD/main/assets/logo.png",
+  "stack": "container",
   "success_url": "/",
   "addons": [
     {
@@ -37,11 +38,6 @@
       "required": false
     }
   },
-  "buildpacks": [
-    {
-      "url": "heroku/nodejs"
-    }
-  ],
   "formation": {
     "worker": {
       "quantity": 1,
