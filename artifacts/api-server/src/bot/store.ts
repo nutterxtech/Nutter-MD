@@ -15,8 +15,14 @@ export interface UserSettings {
   isBanned: boolean;
 }
 
+export interface BotSettings {
+  autoViewStatus: boolean;
+  autoLikeStatus: boolean;
+  statusLikeEmoji: string;
+}
+
+// ── Group store ────────────────────────────────────────────────────────────────
 const groupStore = new Map<string, GroupSettings>();
-const userStore = new Map<string, UserSettings>();
 
 export function getGroupSettings(groupId: string): GroupSettings | null {
   return groupStore.get(groupId) ?? null;
@@ -44,10 +50,28 @@ export function updateGroupSettings(groupId: string, update: Partial<Omit<GroupS
   groupStore.set(groupId, { ...existing, ...update });
 }
 
+// ── User store ─────────────────────────────────────────────────────────────────
+const userStore = new Map<string, UserSettings>();
+
 export function getUserSettings(userId: string): UserSettings | null {
   return userStore.get(userId) ?? null;
 }
 
 export function setUserBanned(userId: string, isBanned: boolean): void {
   userStore.set(userId, { userId, isBanned });
+}
+
+// ── Bot-level settings ─────────────────────────────────────────────────────────
+const botSettings: BotSettings = {
+  autoViewStatus: false,
+  autoLikeStatus: false,
+  statusLikeEmoji: "❤️",
+};
+
+export function getBotSettings(): BotSettings {
+  return { ...botSettings };
+}
+
+export function updateBotSettings(update: Partial<BotSettings>): void {
+  Object.assign(botSettings, update);
 }

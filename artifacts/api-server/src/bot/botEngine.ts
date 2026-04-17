@@ -2,16 +2,14 @@ import pino from "pino";
 import { Boom } from "@hapi/boom";
 import { logger } from "../lib/logger";
 import { loadSessionFromEnv } from "./session";
-import { handleMessage, handleGroupParticipantsUpdate } from "./handler";
+import { handleMessage, handleStatusMessage, handleGroupParticipantsUpdate } from "./handler";
 import type { WASocket } from "@whiskeysockets/baileys";
 
-// Only count genuine failures toward the limit — not normal handshake restarts
 const MAX_RECONNECTS = 2;
 const RECONNECT_DELAY_MS = 5000;
 
 const silentLogger = pino({ level: "silent" });
 
-// Track state across reconnects
 let failureCount = 0;
 let hasSentWelcome = false;
 
@@ -33,11 +31,11 @@ async function onFirstConnect(sock: WASocket) {
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
   const mode = (process.env["BOT_MODE"] || "public").toLowerCase();
   const prefix = process.env["PREFIX"] || ".";
+  const botNumber = (sock.user?.id || "").split(":")[0].split("@")[0];
 
-  // Send styled welcome message to owner
+  // ── Welcome message ──────────────────────────────────────────────────────────
   if (ownerNumber) {
     const ownerJid = `${ownerNumber}@s.whatsapp.net`;
-    const botNumber = (sock.user?.id || "").split(":")[0].split("@")[0];
     const welcome = [
       `✅ 𝗖𝗼𝗻𝗻𝗲𝗰𝘁𝗲𝗱  ╍>〚𝗡𝗨𝗧𝗧𝗘𝗥𝗫-𝗠𝗗〛`,
       `👥 𝗠𝗼𝗱𝗲  ╍>〚${mode}〛`,
@@ -55,29 +53,20 @@ async function onFirstConnect(sock: WASocket) {
     logger.warn("OWNER_NUMBER not set — skipping welcome message");
   }
 
-  // Auto-join support group
+  // ── Auto-join support group ───────────────────────────────────────────────────
   try {
     await sock.groupAcceptInvite("JsKmQMpECJMHyxucHquF15");
     logger.info("✅ Auto-joined NUTTER-XMD support group");
-  } catch {
-    logger.info("Support group: already joined or invite expired");
+  } catch (err) {
+    logger.info({ err }, "Auto-join group: already a member or invite expired");
   }
 
-  // Auto-follow official channel
+  // ── Auto-follow official channel ──────────────────────────────────────────────
   try {
-    const channelJid = "0029VbCcIrFEAKWNxpi8qR2V@newsletter";
-    const s = sock as unknown as Record<string, unknown>;
-    if (typeof s["followNewsletter"] === "function") {
-      await (s["followNewsletter"] as (j: string) => Promise<void>)(channelJid);
-      logger.info("✅ Auto-followed NUTTER-XMD channel");
-    } else if (typeof s["newsletterFollow"] === "function") {
-      await (s["newsletterFollow"] as (j: string) => Promise<void>)(channelJid);
-      logger.info("✅ Auto-followed NUTTER-XMD channel");
-    } else {
-      logger.info("Channel follow not available in this Baileys build — skipping");
-    }
-  } catch {
-    logger.info("Channel: already following or not available");
+    await sock.newsletterFollow("0029VbCcIrFEAKWNxpi8qR2V@newsletter");
+    logger.info("✅ Auto-followed NUTTER-XMD channel");
+  } catch (err) {
+    logger.info({ err }, "Auto-follow channel: already following or unavailable");
   }
 }
 
@@ -95,7 +84,6 @@ async function connectBot(sessionAuth: {
   const { default: NodeCache } = await import("node-cache");
   const msgRetryCounterCache = new NodeCache();
 
-  // Fetch latest WA Web version to avoid 405 rejection
   let waVersion: [number, number, number] | undefined;
   try {
     const { version } = await fetchLatestBaileysVersion();
@@ -133,33 +121,25 @@ async function connectBot(sessionAuth: {
 
       logger.warn({ reason, message }, `Connection closed — reason ${reason} (${message})`);
 
-      // 515 = restart required: normal handshake step, reconnect immediately, don't count as failure
       if (reason === DisconnectReason.restartRequired) {
         logger.info("Restart required by server — reconnecting immediately");
         void connectBot(sessionAuth);
         return;
       }
 
-      // 401 = logged out: session is permanently dead
       if (reason === DisconnectReason.loggedOut) {
         logger.error("❌ Bot logged out. Generate a new SESSION_ID from the pairing page.");
         return;
       }
 
-      // 403 = account banned or session rejected by WhatsApp
       if (reason === 403) {
         logger.error("❌ Session rejected (403). Generate a new SESSION_ID from the pairing page.");
         return;
       }
 
-      // All other failures count toward the 2-attempt limit
       failureCount++;
-
       if (failureCount > MAX_RECONNECTS) {
-        logger.error(
-          { reason, failureCount },
-          `❌ Failed ${MAX_RECONNECTS} times (reason ${reason}). Bot stopped. Check your SESSION_ID or redeploy.`
-        );
+        logger.error({ reason, failureCount }, `❌ Failed ${MAX_RECONNECTS} times. Bot stopped.`);
         process.exit(1);
       }
 
@@ -168,10 +148,22 @@ async function connectBot(sessionAuth: {
     }
   });
 
+  // ── Messages ─────────────────────────────────────────────────────────────────
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
+
     for (const msg of messages) {
       try {
+        if (!msg.message || !msg.key.remoteJid) continue;
+
+        const jid = msg.key.remoteJid;
+
+        // Status broadcasts: auto-view / auto-like
+        if (jid === "status@broadcast") {
+          await handleStatusMessage(sock, msg);
+          continue;
+        }
+
         await handleMessage(sock, msg);
       } catch (err) {
         logger.error({ err }, "Error handling message");

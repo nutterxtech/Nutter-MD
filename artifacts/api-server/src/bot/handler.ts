@@ -1,6 +1,6 @@
 import type { WASocket, WAMessageKey, proto } from "@whiskeysockets/baileys";
 import type { GroupSettings } from "./store";
-import { getGroupSettings, getUserSettings } from "./store";
+import { getGroupSettings, getUserSettings, getBotSettings, updateBotSettings } from "./store";
 import { logger } from "../lib/logger";
 import {
   handlePing,
@@ -43,6 +43,34 @@ export interface CommandContext {
   prefix: string;
 }
 
+// ── Status broadcast handler ───────────────────────────────────────────────────
+export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
+  const settings = getBotSettings();
+
+  if (settings.autoViewStatus) {
+    try {
+      await sock.readMessages([msg.key]);
+    } catch {}
+  }
+
+  if (settings.autoLikeStatus && msg.key.participant) {
+    try {
+      const emojiList = (settings.statusLikeEmoji || "❤️")
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean);
+      const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
+      await sock.sendMessage(msg.key.participant, {
+        react: {
+          text: emoji,
+          key: { ...msg.key, remoteJid: "status@broadcast" },
+        },
+      });
+    } catch {}
+  }
+}
+
+// ── Main message handler ───────────────────────────────────────────────────────
 export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
   if (!msg.key) return;
 
@@ -54,9 +82,8 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
 
   const isGroup = jid.endsWith("@g.us");
 
-  // In a group, participant tells us who sent it (even for fromMe).
-  // In a DM, fromMe means the owner sent it from their primary phone;
-  // the remoteJid is the recipient, not the sender.
+  // Identify sender. In a DM with fromMe=true, the sender IS the bot owner
+  // (they typed from their primary phone); remoteJid is the recipient, not sender.
   const botJidFull = sock.user?.id || "";
   const senderJid = isGroup
     ? msg.key.participant || botJidFull
@@ -93,12 +120,11 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
       }
 
       const groupMeta = await sock.groupMetadata(jid);
-      const botJid = sock.user?.id || "";
-      const botNumber = botJid.split(":")[0].split("@")[0];
-      const senderNum = senderJid.split("@")[0];
+      const botNumber = botJidFull.split(":")[0].split("@")[0];
+      const senderNum = senderNumber;
 
       for (const participant of groupMeta.participants) {
-        const participantNumber = participant.id.split("@")[0];
+        const participantNumber = participant.id.split(":")[0].split("@")[0];
         const isAdmin = participant.admin === "admin" || participant.admin === "superadmin";
         if (participantNumber === senderNum && isAdmin) isSenderGroupAdmin = true;
         if (participantNumber === botNumber && isAdmin) isBotGroupAdmin = true;
@@ -159,35 +185,80 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   const [command, ...args] = commandText.split(" ");
   const cmd = command.toLowerCase();
 
-  logger.info({ cmd, jid, sender: senderNumber }, "Command received");
+  logger.info({ cmd, jid, sender: senderNumber, isOwner }, "Command received");
 
   switch (cmd) {
-    case "ping": return handlePing(sock, msg, ctx);
-    case "alive": return handleAlive(sock, msg, ctx);
-    case "menu": return handleMenu(sock, msg, ctx, prefix);
-    case "owner": return handleOwner(sock, msg, ctx);
-    case "settings": return handleSettings(sock, msg, ctx, prefix);
-    case "sticker": return handleSticker(sock, msg, ctx);
-    case "restart": return handleRestart(sock, msg, ctx);
-    case "kick": return handleKick(sock, msg, ctx);
-    case "add": return handleAdd(sock, msg, ctx, args);
-    case "promote": return handlePromote(sock, msg, ctx);
-    case "demote": return handleDemote(sock, msg, ctx);
-    case "antilink": return handleAntilink(sock, msg, ctx, args);
-    case "antibadword": return handleAntibadword(sock, msg, ctx, args);
-    case "antimention": return handleAntimention(sock, msg, ctx, args);
-    case "ban": return handleBan(sock, msg, ctx);
-    case "unban": return handleUnban(sock, msg, ctx);
-    case "setprefix": return handleSetPrefix(sock, msg, ctx, args);
-    case "tagall": return handleTagAll(sock, msg, ctx, args);
-    case "groupinfo": return handleGroupInfo(sock, msg, ctx);
-    case "mute": return handleMute(sock, msg, ctx);
-    case "unmute": return handleUnmute(sock, msg, ctx);
-    case "welcome": return handleWelcome(sock, msg, ctx, args);
-    case "setwelcome": return handleSetWelcome(sock, msg, ctx, args);
-    case "autoreply": return handleAutoReply(sock, msg, ctx, args);
+    // ── General ──────────────────────────────────────────────────────────────
+    case "ping":          return handlePing(sock, msg, ctx);
+    case "alive":         return handleAlive(sock, msg, ctx);
+    case "menu":          return handleMenu(sock, msg, ctx, prefix);
+    case "owner":         return handleOwner(sock, msg, ctx);
+    case "settings":      return handleSettings(sock, msg, ctx, prefix);
+    case "sticker":       return handleSticker(sock, msg, ctx);
+    case "restart":       return handleRestart(sock, msg, ctx);
+
+    // ── Bot status settings (owner only) ─────────────────────────────────────
+    case "autoviewstatus":
+    case "autoview": {
+      if (!isOwner) { await sock.sendMessage(jid, { text: "Only the owner can change this." }); return; }
+      const val = args[0]?.toLowerCase();
+      if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
+        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}\nUsage: ${prefix}autoviewstatus on/off` });
+        return;
+      }
+      const enabled = val === "true" || val === "on";
+      updateBotSettings({ autoViewStatus: enabled });
+      await sock.sendMessage(jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
+      return;
+    }
+
+    case "autolikestatus":
+    case "autolike": {
+      if (!isOwner) { await sock.sendMessage(jid, { text: "Only the owner can change this." }); return; }
+      const val = args[0]?.toLowerCase();
+      if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
+        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}\nUsage: ${prefix}autolikestatus on/off` });
+        return;
+      }
+      const enabled = val === "true" || val === "on";
+      updateBotSettings({ autoLikeStatus: enabled });
+      await sock.sendMessage(jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
+      return;
+    }
+
+    case "statusemoji": {
+      if (!isOwner) { await sock.sendMessage(jid, { text: "Only the owner can change this." }); return; }
+      const emoji = args.join(" ").trim();
+      if (!emoji) {
+        await sock.sendMessage(jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}\nUsage: ${prefix}statusemoji ❤️,🔥,😍` });
+        return;
+      }
+      updateBotSettings({ statusLikeEmoji: emoji });
+      await sock.sendMessage(jid, { text: `Status like emoji set to: *${emoji}*` });
+      return;
+    }
+
+    // ── Group management ──────────────────────────────────────────────────────
+    case "kick":          return handleKick(sock, msg, ctx);
+    case "add":           return handleAdd(sock, msg, ctx, args);
+    case "promote":       return handlePromote(sock, msg, ctx);
+    case "demote":        return handleDemote(sock, msg, ctx);
+    case "antilink":      return handleAntilink(sock, msg, ctx, args);
+    case "antibadword":   return handleAntibadword(sock, msg, ctx, args);
+    case "antimention":   return handleAntimention(sock, msg, ctx, args);
+    case "ban":           return handleBan(sock, msg, ctx);
+    case "unban":         return handleUnban(sock, msg, ctx);
+    case "setprefix":     return handleSetPrefix(sock, msg, ctx, args);
+    case "tagall":        return handleTagAll(sock, msg, ctx, args);
+    case "groupinfo":     return handleGroupInfo(sock, msg, ctx);
+    case "mute":          return handleMute(sock, msg, ctx);
+    case "unmute":        return handleUnmute(sock, msg, ctx);
+    case "welcome":       return handleWelcome(sock, msg, ctx, args);
+    case "setwelcome":    return handleSetWelcome(sock, msg, ctx, args);
+    case "autoreply":     return handleAutoReply(sock, msg, ctx, args);
+
     default:
-      await sock.sendMessage(jid, { text: `Unknown command: ${prefix}${cmd}. Use ${prefix}menu to see all commands.` });
+      await sock.sendMessage(jid, { text: `Unknown command: ${prefix}${cmd}\nUse ${prefix}menu for all commands.` });
   }
 }
 

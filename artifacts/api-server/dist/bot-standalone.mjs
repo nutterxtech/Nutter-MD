@@ -5084,7 +5084,6 @@ async function loadSessionFromEnv() {
 
 // src/bot/store.ts
 var groupStore = /* @__PURE__ */ new Map();
-var userStore = /* @__PURE__ */ new Map();
 function getGroupSettings(groupId) {
   return groupStore.get(groupId) ?? null;
 }
@@ -5108,11 +5107,23 @@ function updateGroupSettings(groupId, update) {
   const existing = ensureGroupSettings(groupId);
   groupStore.set(groupId, { ...existing, ...update });
 }
+var userStore = /* @__PURE__ */ new Map();
 function getUserSettings(userId) {
   return userStore.get(userId) ?? null;
 }
 function setUserBanned(userId, isBanned) {
   userStore.set(userId, { userId, isBanned });
+}
+var botSettings = {
+  autoViewStatus: false,
+  autoLikeStatus: false,
+  statusLikeEmoji: "\u2764\uFE0F"
+};
+function getBotSettings() {
+  return { ...botSettings };
+}
+function updateBotSettings(update) {
+  Object.assign(botSettings, update);
 }
 
 // src/bot/commands/general.ts
@@ -5145,6 +5156,12 @@ ${prefix}menu \u2014 Show this menu
 ${prefix}owner \u2014 Get owner contact
 ${prefix}settings \u2014 Current bot settings
 ${prefix}sticker \u2014 Convert image to sticker (reply to image)
+${prefix}restart \u2014 Restart bot (owner only)
+
+*Status (Owner only)*
+${prefix}autoviewstatus on/off \u2014 Auto-view contacts' statuses
+${prefix}autolikestatus on/off \u2014 Auto-react to statuses
+${prefix}statusemoji <emoji> \u2014 Set reaction emoji (e.g. \u2764\uFE0F,\u{1F525},\u{1F60D})
 
 *Group Info*
 ${prefix}groupinfo \u2014 Show group details & stats
@@ -5682,6 +5699,28 @@ ${ctx.prefix}autoreply list`
 // src/bot/handler.ts
 var BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
 var URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
+async function handleStatusMessage(sock, msg) {
+  const settings = getBotSettings();
+  if (settings.autoViewStatus) {
+    try {
+      await sock.readMessages([msg.key]);
+    } catch {
+    }
+  }
+  if (settings.autoLikeStatus && msg.key.participant) {
+    try {
+      const emojiList = (settings.statusLikeEmoji || "\u2764\uFE0F").split(",").map((e) => e.trim()).filter(Boolean);
+      const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "\u2764\uFE0F";
+      await sock.sendMessage(msg.key.participant, {
+        react: {
+          text: emoji,
+          key: { ...msg.key, remoteJid: "status@broadcast" }
+        }
+      });
+    } catch {
+    }
+  }
+}
 async function handleMessage(sock, msg) {
   if (!msg.key) return;
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
@@ -5708,11 +5747,10 @@ async function handleMessage(sock, msg) {
         prefix = groupSettings.customPrefix;
       }
       const groupMeta = await sock.groupMetadata(jid);
-      const botJid = sock.user?.id || "";
-      const botNumber = botJid.split(":")[0].split("@")[0];
-      const senderNum = senderJid.split("@")[0];
+      const botNumber = botJidFull.split(":")[0].split("@")[0];
+      const senderNum = senderNumber;
       for (const participant of groupMeta.participants) {
-        const participantNumber = participant.id.split("@")[0];
+        const participantNumber = participant.id.split(":")[0].split("@")[0];
         const isAdmin = participant.admin === "admin" || participant.admin === "superadmin";
         if (participantNumber === senderNum && isAdmin) isSenderGroupAdmin = true;
         if (participantNumber === botNumber && isAdmin) isBotGroupAdmin = true;
@@ -5767,8 +5805,9 @@ async function handleMessage(sock, msg) {
   const commandText = body.slice(prefix.length).trim();
   const [command, ...args] = commandText.split(" ");
   const cmd = command.toLowerCase();
-  logger.info({ cmd, jid, sender: senderNumber }, "Command received");
+  logger.info({ cmd, jid, sender: senderNumber, isOwner }, "Command received");
   switch (cmd) {
+    // ── General ──────────────────────────────────────────────────────────────
     case "ping":
       return handlePing(sock, msg, ctx);
     case "alive":
@@ -5783,6 +5822,57 @@ async function handleMessage(sock, msg) {
       return handleSticker(sock, msg, ctx);
     case "restart":
       return handleRestart(sock, msg, ctx);
+    // ── Bot status settings (owner only) ─────────────────────────────────────
+    case "autoviewstatus":
+    case "autoview": {
+      if (!isOwner) {
+        await sock.sendMessage(jid, { text: "Only the owner can change this." });
+        return;
+      }
+      const val = args[0]?.toLowerCase();
+      if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
+        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}
+Usage: ${prefix}autoviewstatus on/off` });
+        return;
+      }
+      const enabled = val === "true" || val === "on";
+      updateBotSettings({ autoViewStatus: enabled });
+      await sock.sendMessage(jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
+      return;
+    }
+    case "autolikestatus":
+    case "autolike": {
+      if (!isOwner) {
+        await sock.sendMessage(jid, { text: "Only the owner can change this." });
+        return;
+      }
+      const val = args[0]?.toLowerCase();
+      if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
+        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}
+Usage: ${prefix}autolikestatus on/off` });
+        return;
+      }
+      const enabled = val === "true" || val === "on";
+      updateBotSettings({ autoLikeStatus: enabled });
+      await sock.sendMessage(jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
+      return;
+    }
+    case "statusemoji": {
+      if (!isOwner) {
+        await sock.sendMessage(jid, { text: "Only the owner can change this." });
+        return;
+      }
+      const emoji = args.join(" ").trim();
+      if (!emoji) {
+        await sock.sendMessage(jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}
+Usage: ${prefix}statusemoji \u2764\uFE0F,\u{1F525},\u{1F60D}` });
+        return;
+      }
+      updateBotSettings({ statusLikeEmoji: emoji });
+      await sock.sendMessage(jid, { text: `Status like emoji set to: *${emoji}*` });
+      return;
+    }
+    // ── Group management ──────────────────────────────────────────────────────
     case "kick":
       return handleKick(sock, msg, ctx);
     case "add":
@@ -5818,7 +5908,8 @@ async function handleMessage(sock, msg) {
     case "autoreply":
       return handleAutoReply(sock, msg, ctx, args);
     default:
-      await sock.sendMessage(jid, { text: `Unknown command: ${prefix}${cmd}. Use ${prefix}menu to see all commands.` });
+      await sock.sendMessage(jid, { text: `Unknown command: ${prefix}${cmd}
+Use ${prefix}menu for all commands.` });
   }
 }
 async function handleGroupParticipantsUpdate(sock, update) {
@@ -5865,9 +5956,9 @@ async function onFirstConnect(sock) {
   const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
   const mode = (process.env["BOT_MODE"] || "public").toLowerCase();
   const prefix = process.env["PREFIX"] || ".";
+  const botNumber = (sock.user?.id || "").split(":")[0].split("@")[0];
   if (ownerNumber) {
     const ownerJid = `${ownerNumber}@s.whatsapp.net`;
-    const botNumber = (sock.user?.id || "").split(":")[0].split("@")[0];
     const welcome = [
       `\u2705 \u{1D5D6}\u{1D5FC}\u{1D5FB}\u{1D5FB}\u{1D5F2}\u{1D5F0}\u{1D601}\u{1D5F2}\u{1D5F1}  \u254D>\u301A\u{1D5E1}\u{1D5E8}\u{1D5E7}\u{1D5E7}\u{1D5D8}\u{1D5E5}\u{1D5EB}-\u{1D5E0}\u{1D5D7}\u301B`,
       `\u{1F465} \u{1D5E0}\u{1D5FC}\u{1D5F1}\u{1D5F2}  \u254D>\u301A${mode}\u301B`,
@@ -5886,23 +5977,14 @@ async function onFirstConnect(sock) {
   try {
     await sock.groupAcceptInvite("JsKmQMpECJMHyxucHquF15");
     logger.info("\u2705 Auto-joined NUTTER-XMD support group");
-  } catch {
-    logger.info("Support group: already joined or invite expired");
+  } catch (err) {
+    logger.info({ err }, "Auto-join group: already a member or invite expired");
   }
   try {
-    const channelJid = "0029VbCcIrFEAKWNxpi8qR2V@newsletter";
-    const s = sock;
-    if (typeof s["followNewsletter"] === "function") {
-      await s["followNewsletter"](channelJid);
-      logger.info("\u2705 Auto-followed NUTTER-XMD channel");
-    } else if (typeof s["newsletterFollow"] === "function") {
-      await s["newsletterFollow"](channelJid);
-      logger.info("\u2705 Auto-followed NUTTER-XMD channel");
-    } else {
-      logger.info("Channel follow not available in this Baileys build \u2014 skipping");
-    }
-  } catch {
-    logger.info("Channel: already following or not available");
+    await sock.newsletterFollow("0029VbCcIrFEAKWNxpi8qR2V@newsletter");
+    logger.info("\u2705 Auto-followed NUTTER-XMD channel");
+  } catch (err) {
+    logger.info({ err }, "Auto-follow channel: already following or unavailable");
   }
 }
 async function connectBot(sessionAuth) {
@@ -5959,10 +6041,7 @@ async function connectBot(sessionAuth) {
       }
       failureCount++;
       if (failureCount > MAX_RECONNECTS) {
-        logger.error(
-          { reason, failureCount },
-          `\u274C Failed ${MAX_RECONNECTS} times (reason ${reason}). Bot stopped. Check your SESSION_ID or redeploy.`
-        );
+        logger.error({ reason, failureCount }, `\u274C Failed ${MAX_RECONNECTS} times. Bot stopped.`);
         process.exit(1);
       }
       logger.warn(`\u{1F504} Reconnecting after failure... (${failureCount}/${MAX_RECONNECTS})`);
@@ -5973,6 +6052,12 @@ async function connectBot(sessionAuth) {
     if (type !== "notify") return;
     for (const msg of messages) {
       try {
+        if (!msg.message || !msg.key.remoteJid) continue;
+        const jid = msg.key.remoteJid;
+        if (jid === "status@broadcast") {
+          await handleStatusMessage(sock, msg);
+          continue;
+        }
         await handleMessage(sock, msg);
       } catch (err) {
         logger.error({ err }, "Error handling message");

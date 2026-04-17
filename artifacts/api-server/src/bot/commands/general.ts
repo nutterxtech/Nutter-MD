@@ -27,7 +27,12 @@ export async function handleMenu(sock: WASocket, _msg: proto.IWebMessageInfo, ct
     `${prefix}menu — Show this menu\n` +
     `${prefix}owner — Get owner contact\n` +
     `${prefix}settings — Current bot settings\n` +
-    `${prefix}sticker — Convert image to sticker (reply to image)\n\n` +
+    `${prefix}sticker — Convert image to sticker (reply to image)\n` +
+    `${prefix}restart — Restart bot (owner only)\n\n` +
+    `*Status (Owner only)*\n` +
+    `${prefix}autoviewstatus on/off — Auto-view contacts' statuses\n` +
+    `${prefix}autolikestatus on/off — Auto-react to statuses\n` +
+    `${prefix}statusemoji <emoji> — Set reaction emoji (e.g. ❤️,🔥,😍)\n\n` +
     `*Group Info*\n` +
     `${prefix}groupinfo — Show group details & stats\n` +
     `${prefix}tagall [msg] — Tag all members (admin only)\n\n` +
