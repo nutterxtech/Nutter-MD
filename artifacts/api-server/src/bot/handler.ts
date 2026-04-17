@@ -124,8 +124,8 @@ export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessage
       const emojiList = (settings.statusLikeEmoji || "❤️")
         .split(",").map((e) => e.trim()).filter(Boolean);
       const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
-      await sock.sendMessage(msg.key.participant, {
-        react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } },
+      await sock.sendMessage("status@broadcast", {
+        react: { text: emoji, key: msg.key },
       });
     } catch {}
   }

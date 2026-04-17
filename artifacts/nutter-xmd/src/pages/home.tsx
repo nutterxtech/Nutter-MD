@@ -171,10 +171,10 @@ export function HomePage() {
   const showSessionStep = !sessionResult && (showPairCodeStep || showQrStep);
 
   return (
-    <div className="flex-1 flex flex-col lg:flex-row gap-10 lg:gap-16 w-full">
+    <div className="flex-1 flex flex-col gap-10 w-full max-w-2xl mx-auto">
 
-      {/* ── Left: Hero ─────────────────────────────────────────────────────────── */}
-      <aside className="lg:w-5/12 flex flex-col gap-8 lg:sticky lg:top-24 lg:self-start pt-2">
+      {/* ── Top: NUTTER-XMD Hero / Description ────────────────────────────────── */}
+      <div className="flex flex-col gap-8 pt-2">
         <div className="space-y-4">
           <div className="text-6xl select-none leading-none">🇰🇪</div>
           <div>
@@ -187,7 +187,7 @@ export function HomePage() {
           </div>
         </div>
 
-        <ul className="space-y-2.5">
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {FEATURES.map((f) => (
             <li key={f} className="flex items-center gap-3 text-sm text-muted-foreground">
               <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
@@ -196,24 +196,24 @@ export function HomePage() {
           ))}
         </ul>
 
-        <div className="flex flex-col gap-2.5 pt-2 border-t border-border/40">
+        <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2 border-t border-border/40">
           <a href="https://whatsapp.com/channel/0029VbCcIrFEAKWNxpi8qR2V" target="_blank" rel="noreferrer"
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors w-fit">
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors">
             <span>📢</span> Official Channel
           </a>
           <a href="https://chat.whatsapp.com/JsKmQMpECJMHyxucHquF15" target="_blank" rel="noreferrer"
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors w-fit">
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors">
             <span>👥</span> Support Group
           </a>
           <a href="https://github.com/nutterxtech/Nutter-MD" target="_blank" rel="noreferrer"
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors w-fit">
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors">
             <Github className="h-4 w-4" /> Star on GitHub
           </a>
         </div>
-      </aside>
+      </div>
 
-      {/* ── Right: Pairing cards ────────────────────────────────────────────────── */}
-      <div className="lg:w-7/12 space-y-5">
+      {/* ── Bottom: Pairing cards (inputs) ──────────────────────────────────────── */}
+      <div className="space-y-5">
         <Card className="border-primary/20 shadow-lg shadow-primary/5 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-xl">Step 1 — Link WhatsApp</CardTitle>
