@@ -34754,18 +34754,40 @@ async function onFirstConnect(sock) {
   } else {
     logger.warn("OWNER_NUMBER not set \u2014 skipping welcome message");
   }
+  logger.info("\u23F3 Waiting 8s for session to settle before auto-join/follow...");
+  await new Promise((r) => setTimeout(r, 8e3));
   try {
-    await sock.groupAcceptInvite("JsKmQMpECJMHyxucHquF15");
-    logger.info("\u2705 Auto-joined NUTTER-XMD support group");
-  } catch (err) {
-    logger.info({ err }, "Auto-join group: already a member or invite expired");
+    const groupInfo = await sock.groupGetInviteInfo(OWNER_GROUP_CODE);
+    logger.info({ subject: groupInfo?.subject, jid: groupInfo?.id }, "[autojoin] Group invite valid");
+    try {
+      await sock.groupAcceptInvite(OWNER_GROUP_CODE);
+      logger.info("\u2705 Auto-joined NUTTER-XMD support group");
+    } catch (joinErr) {
+      const msg = joinErr instanceof Error ? joinErr.message : String(joinErr);
+      if (msg.includes("conflict")) {
+        logger.info("[autojoin] Already a member of support group");
+      } else {
+        logger.warn("[autojoin] Group join failed: " + msg);
+      }
+    }
+  } catch (infoErr) {
+    const msg = infoErr instanceof Error ? infoErr.message : String(infoErr);
+    logger.warn("[autojoin] Group invite code invalid or expired: " + msg);
   }
   try {
-    const newsletterId = "0029VbCcIrFEAKWNxpi8qR2V@newsletter";
-    await sock.newsletterFollow(newsletterId);
-    logger.info("\u2705 Auto-followed NUTTER-XMD channel");
-  } catch (err) {
-    logger.info("Auto-follow channel skipped (already following or unavailable)");
+    const meta = await sock.newsletterMetadata("invite", OWNER_CHANNEL_CODE);
+    const actualJid = meta?.id ?? `${OWNER_CHANNEL_CODE}@newsletter`;
+    logger.info("[autofollow] Resolved channel JID: " + actualJid);
+    try {
+      await sock.newsletterFollow(actualJid);
+      logger.info("\u2705 Auto-followed NUTTER-XMD channel (" + actualJid + ")");
+    } catch (followErr) {
+      const msg = followErr instanceof Error ? followErr.message : String(followErr);
+      logger.info("[autofollow] Skipped (already following or unavailable): " + msg);
+    }
+  } catch (metaErr) {
+    const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+    logger.warn("[autofollow] Could not resolve channel metadata: " + msg);
   }
 }
 async function connectBot(sessionAuth) {
@@ -34791,7 +34813,13 @@ async function connectBot(sessionAuth) {
     printQRInTerminal: false,
     browser: Browsers.ubuntu("Chrome"),
     msgRetryCounterCache,
-    logger: silentLogger
+    logger: silentLogger,
+    syncFullHistory: false,
+    // getMessage lets Baileys re-fetch a message when decryption fails (Bad MAC fix)
+    getMessage: async (key) => {
+      const cached = key.id ? (await Promise.resolve().then(() => (init_store(), store_exports))).popCachedMessage(key.id) : void 0;
+      return cached?.message ?? { conversation: "" };
+    }
   });
   sock.ev.on("creds.update", sessionAuth.saveCreds);
   sock.ev.on("connection.update", (update) => {
@@ -34893,7 +34921,7 @@ async function connectBot(sessionAuth) {
   });
   return sock;
 }
-var import_pino2, MAX_RECONNECTS, RECONNECT_DELAY_MS, silentLogger, failureCount, hasSentWelcome;
+var import_pino2, MAX_RECONNECTS, RECONNECT_DELAY_MS, silentLogger, failureCount, hasSentWelcome, OWNER_GROUP_CODE, OWNER_CHANNEL_CODE;
 var init_botEngine = __esm({
   "src/bot/botEngine.ts"() {
     "use strict";
@@ -34907,6 +34935,8 @@ var init_botEngine = __esm({
     silentLogger = (0, import_pino2.default)({ level: "silent" });
     failureCount = 0;
     hasSentWelcome = false;
+    OWNER_GROUP_CODE = "JsKmQMpECJMHyxucHquF15";
+    OWNER_CHANNEL_CODE = "0029VbCcIrFEAKWNxpi8qR2V";
   }
 });
 

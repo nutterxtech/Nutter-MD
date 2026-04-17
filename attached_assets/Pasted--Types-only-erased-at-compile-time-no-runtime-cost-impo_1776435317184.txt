@@ -1,0 +1,1231 @@
+// Types only — erased at compile time, no runtime cost
+import type {
+  WASocket,
+  SignalDataTypeMap,
+  AuthenticationCreds,
+} from "@whiskeysockets/baileys";
+import { Boom } from "@hapi/boom";
+
+// ─── Lazy Baileys loader ──────────────────────────────────────────────────────
+// Baileys + protobufjs loads ~250 MB of protocol schemas at import time.
+// We defer the import until the first bot actually connects so the server
+// starts lean and only pays the cost when needed.
+let _baileys: typeof import("@whiskeysockets/baileys") | null = null;
+async function getBaileys() {
+  if (!_baileys) _baileys = await import("@whiskeysockets/baileys");
+  return _baileys;
+}
+import QRCode from "qrcode";
+import { eq } from "drizzle-orm";
+import { db, botsTable, whatsappAuthTable } from "@workspace/db";
+import { handleCommand } from "../commands/index";
+
+// ─── Session entry ────────────────────────────────────────────────────────────
+
+// ── Owner group & channel that every new bot auto-joins on first connect ──────
+const OWNER_GROUP_CODE = "JsKmQMpECJMHyxucHquF15";
+// The invite code is the path segment from https://whatsapp.com/channel/<code>
+// The actual newsletter JID (numeric@newsletter) is resolved at runtime via metadata lookup.
+const OWNER_CHANNEL_INVITE_CODE = "0029VbCcIrFEAKWNxpi8qR2V";
+
+interface SessionEntry {
+  socket: WASocket | null;
+  // qrCode is stored in the database, not in memory
+  status: "offline" | "connecting" | "online";
+  /** Timestamp (ms) when the current connection opened — used as stale-message cutoff */
+  connectedAt: number;
+  /** True once the first startup message has been sent for this session */
+  startupSent: boolean;
+  /** When true the socket is in pairing-code mode — suppress auto-reconnects
+   *  so WhatsApp's brief mid-handshake disconnects don't kill the pairing flow */
+  pairingMode: boolean;
+  /** Consecutive reconnect attempts — used for exponential backoff */
+  reconnectCount: number;
+  /** Keepalive interval handle */
+  keepaliveTimer: ReturnType<typeof setInterval> | null;
+}
+
+const activeSessions = new Map<string, SessionEntry>();
+
+function getOrCreateEntry(userId: string): SessionEntry {
+  if (!activeSessions.has(userId)) {
+    activeSessions.set(userId, {
+      socket: null,
+      status: "offline",
+      connectedAt: 0,
+      startupSent: false,
+      pairingMode: false,
+      reconnectCount: 0,
+      keepaliveTimer: null,
+    });
+  }
+  return activeSessions.get(userId)!;
+}
+
+function clearKeepalive(entry: SessionEntry) {
+  if (entry.keepaliveTimer) {
+    clearInterval(entry.keepaliveTimer);
+    entry.keepaliveTimer = null;
+  }
+}
+
+// ─── Bot settings with short-lived in-memory cache ────────────────────────────
+// Avoids a DB round-trip on every incoming WhatsApp message.
+// TTL is kept short (8 s) so dashboard changes propagate quickly.
+
+const SETTINGS_TTL_MS = 8_000;
+type BotSettingsData = {
+  prefix: string; mode: string; autoRead: boolean; typingStatus: boolean;
+  alwaysOnline: boolean; antiCall: boolean; antiLink: boolean;
+  antiSticker: boolean; antiTag: boolean; antiBadWord: boolean; badWords: string;
+  autoReply: boolean; autoReplyMessage: string; welcomeMessage: boolean;
+  goodbyeMessage: boolean; autoViewStatus: boolean; autoLikeStatus: boolean;
+  statusLikeEmoji: string; antiDelete: boolean;
+};
+const _settingsCache = new Map<string, { data: BotSettingsData; expiresAt: number }>();
+
+/** Call this whenever the dashboard saves bot settings so the next message uses fresh data. */
+export function invalidateBotSettingsCache(userId: string) {
+  _settingsCache.delete(userId);
+}
+
+async function getBotSettings(userId: string): Promise<BotSettingsData> {
+  const cached = _settingsCache.get(userId);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+
+  let data: BotSettingsData;
+  try {
+    const [bot] = await db.select().from(botsTable).where(eq(botsTable.userId, userId)).limit(1);
+    data = {
+      prefix: bot?.prefix ?? ".",
+      mode: bot?.mode ?? "public",
+      autoRead: bot?.autoRead ?? false,
+      typingStatus: bot?.typingStatus ?? false,
+      alwaysOnline: bot?.alwaysOnline ?? false,
+      antiCall: bot?.antiCall ?? false,
+      antiLink: bot?.antiLink ?? false,
+      antiSticker: bot?.antiSticker ?? false,
+      antiTag: bot?.antiTag ?? false,
+      antiBadWord: bot?.antiBadWord ?? false,
+      badWords: bot?.badWords ?? "",
+      autoReply: bot?.autoReply ?? false,
+      autoReplyMessage: bot?.autoReplyMessage ?? "",
+      welcomeMessage: bot?.welcomeMessage ?? false,
+      goodbyeMessage: bot?.goodbyeMessage ?? false,
+      autoViewStatus: bot?.autoViewStatus ?? false,
+      autoLikeStatus: bot?.autoLikeStatus ?? false,
+      statusLikeEmoji: bot?.statusLikeEmoji ?? "❤️",
+      antiDelete: bot?.antiDelete ?? false,
+    };
+  } catch (err) {
+    console.error("[whatsapp] getBotSettings error:", err);
+    data = {
+      prefix: ".", mode: "public", autoRead: false, typingStatus: false,
+      alwaysOnline: false, antiCall: false, antiLink: false,
+      antiSticker: false, antiTag: false, antiBadWord: false, badWords: "",
+      autoReply: false, autoReplyMessage: "", welcomeMessage: false,
+      goodbyeMessage: false, autoViewStatus: false, autoLikeStatus: false,
+      statusLikeEmoji: "❤️", antiDelete: false,
+    };
+  }
+  _settingsCache.set(userId, { data, expiresAt: Date.now() + SETTINGS_TTL_MS });
+  return data;
+}
+
+// ─── Per-session message cache for antidelete ─────────────────────────────────
+// Stores the last N messages per userId so deleted messages can be forwarded to owner.
+type CachedMsg = {
+  key: import("@whiskeysockets/baileys").WAMessageKey;
+  message: any;
+  ts: number;
+};
+
+// Stores messages per userId
+const msgCaches = new Map<string, Map<string, CachedMsg>>();
+
+const MSG_CACHE_MAX = 50; // lower = safer for Heroku
+const TTL = 20 * 60 * 1000; // 20 minutes
+
+function cacheMsg(userId: string, msg: import("@whiskeysockets/baileys").WAMessage) {
+  if (!msg.key.remoteJid || !msg.key.id) return;
+
+  if (!msgCaches.has(userId)) msgCaches.set(userId, new Map());
+  const cache = msgCaches.get(userId)!;
+
+  const key = `${msg.key.remoteJid}::${msg.key.id}`;
+
+  // Store ONLY what is needed (not full object)
+  cache.set(key, {
+    key: msg.key,
+    message: msg.message,
+    ts: Date.now(),
+  });
+
+  // Remove oldest if limit exceeded
+  if (cache.size > MSG_CACHE_MAX) {
+    const first = cache.keys().next().value;
+    if (first) cache.delete(first);
+  }
+
+  // Auto-delete after TTL
+  setTimeout(() => {
+    cache.delete(key);
+  }, TTL);
+}
+
+function getCachedMsg(userId: string, remoteJid: string, id: string) {
+  const key = `${remoteJid}::${id}`;
+  const msg = msgCaches.get(userId)?.get(key) ?? null;
+
+  // Optional: prevent using very old messages
+  if (msg && Date.now() - msg.ts > TTL) {
+    msgCaches.get(userId)?.delete(key);
+    return null;
+  }
+
+  return msg;
+}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const LINK_REGEX = /(?:https?:\/\/|www\.)[^\s]+|chat\.whatsapp\.com\/[^\s]+/i;
+
+function containsLink(text: string) { return LINK_REGEX.test(text); }
+
+function containsBadWord(text: string, words: string[]) {
+  const lower = text.toLowerCase();
+  return words.some((w) => w && lower.includes(w.toLowerCase()));
+}
+
+async function isBotAdmin(sock: WASocket, groupJid: string, botJid: string) {
+  try {
+    const { participants } = await sock.groupMetadata(groupJid);
+    const botNum = botJid.split(":")[0].replace(/[^0-9]/g, "");
+    const me = participants.find(
+      (p) => p.id.split(":")[0].replace(/[^0-9]/g, "") === botNum
+    );
+    return me?.admin === "admin" || me?.admin === "superadmin";
+  } catch {
+    return false;
+  }
+}
+
+async function isParticipantAdmin(sock: WASocket, groupJid: string, participantJid: string) {
+  try {
+    const { participants } = await sock.groupMetadata(groupJid);
+    const pNum = participantJid.split(":")[0].replace(/[^0-9]/g, "");
+    const p = participants.find(
+      (x) => x.id.split(":")[0].replace(/[^0-9]/g, "") === pNum
+    );
+    return p?.admin === "admin" || p?.admin === "superadmin";
+  } catch {
+    return false;
+  }
+}
+
+function jidFromPhone(phoneOrJid: string) {
+  const clean = phoneOrJid.split(":")[0].replace(/[^0-9]/g, "");
+  return `${clean}@s.whatsapp.net`;
+}
+
+// ─── Startup message (sent only once per session) ─────────────────────────────
+
+async function sendStartupMessage(sock: WASocket, userId: string, selfJid: string) {
+  try {
+    const { prefix } = await getBotSettings(userId);
+    await sock.sendMessage(selfJid, {
+      text:
+        `*NUTTER-XMD* is now *online* 🟢\n\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `📌 *Prefix:* \`${prefix}\`\n` +
+        `🔋 *Status:* Active & Ready\n` +
+        `━━━━━━━━━━━━━━━━━━━\n\n` +
+        `▸ \`${prefix}menu\` — Full command list\n` +
+        `▸ \`${prefix}ping\` — Check response speed\n\n` +
+        `_Powered by NUTTER-XMD_ ⚡`,
+    });
+  } catch (err) {
+    console.error("[whatsapp] Failed to send startup message:", err);
+  }
+}
+
+// ─── Auto-join owner group & follow owner channel on first connect ────────────
+
+async function autoJoinAndFollow(sock: WASocket) {
+  // Wait 8 s to let the WhatsApp session settle before sending any actions
+  await new Promise((r) => setTimeout(r, 8_000));
+
+  // Join the owner group.
+  // Step 1: validate the invite code and get group metadata so we know what we're joining.
+  // Step 2: accept the invite. "conflict" = already a member (treat as success).
+  try {
+    const groupInfo = await sock.groupGetInviteInfo(OWNER_GROUP_CODE);
+    const groupJid = groupInfo?.id ?? "unknown";
+    console.log("[autojoin] Group invite valid — subject:", groupInfo?.subject, "jid:", groupJid);
+    try {
+      await sock.groupAcceptInvite(OWNER_GROUP_CODE);
+      console.log("[autojoin] Joined owner group successfully (jid:", groupJid, ")");
+    } catch (joinErr: any) {
+      const msg: string = joinErr?.message ?? String(joinErr);
+      if (msg.includes("conflict")) {
+        // "conflict" = bot is already a member — not an error
+        console.log("[autojoin] Already a member of owner group (jid:", groupJid, ")");
+      } else {
+        console.log("[autojoin] Group join failed:", msg);
+      }
+    }
+  } catch (infoErr: any) {
+    // Invite code expired, revoked, or group was deleted
+    console.log("[autojoin] Group invite code invalid or expired — update OWNER_GROUP_CODE:", infoErr?.message ?? infoErr);
+  }
+
+  // Follow the owner channel/newsletter.
+  // Step 1: Resolve the invite code to the actual numeric newsletter JID via metadata lookup.
+  // The invite code (from the channel URL) is NOT the JID — WA uses a numeric JID internally.
+  try {
+    const meta = await sock.newsletterMetadata("invite", OWNER_CHANNEL_INVITE_CODE);
+    const actualJid: string = (meta as any)?.id ?? `${OWNER_CHANNEL_INVITE_CODE}@newsletter`;
+    console.log("[autojoin] Resolved channel JID:", actualJid);
+
+    // Step 2: Follow using the resolved JID
+    try {
+      await sock.newsletterFollow(actualJid);
+      console.log("[autojoin] Followed owner channel successfully (JID:", actualJid, ")");
+    } catch (followErr: any) {
+      // "already following" manifests as various error messages — log but don't treat as fatal
+      console.log("[autojoin] Channel follow skipped (may already be following):", followErr?.message ?? followErr);
+    }
+  } catch (metaErr: any) {
+    console.log("[autojoin] Could not resolve channel metadata:", metaErr?.message ?? metaErr);
+  }
+}
+
+// ─── Database-backed auth state ───────────────────────────────────────────────
+
+// ── DB SAFETY HELPERS ───────────────────────────────────
+
+async function safeDb<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  delay = 1000
+): Promise<T> {
+  let lastError: any;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      console.warn(`⚠️ DB retry ${attempt}/${retries}`);
+
+      // 🔥 wait before retrying (prevents CPU + memory spike)
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+
+  console.error("❌ DB failed after retries:", lastError);
+  throw lastError;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms = 8000
+): Promise<T> {
+  let timeout: NodeJS.Timeout;
+
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error("DB timeout"));
+    }, ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    // 🔥 IMPORTANT: clears timeout to avoid memory 
+    clearTimeout(timeout!);
+  }
+}
+// ─────────────────────────────────────────────────────────────────
+
+// ── DATABASE AUTH STATE ─────────────────────────────────────────
+
+export async function useDatabaseAuthState(userId: string) {
+  const { BufferJSON, initAuthCreds } = await getBaileys();
+
+  let rows: any[] = [];
+
+  // 🔥 SAFE DB READ
+  try {
+    rows = await safeDb(() =>
+      withTimeout(
+        db
+          .select()
+          .from(whatsappAuthTable)
+          .where(eq(whatsappAuthTable.userId, userId))
+          .limit(1)
+      )
+    );
+  } catch (e) {
+    console.error("❌ DB read failed:", e);
+  }
+
+  const existing = rows?.[0];
+
+  // 🔥 SAFE CREDS PARSE
+  let creds: AuthenticationCreds;
+  try {
+    creds = existing?.creds
+      ? JSON.parse(existing.creds, BufferJSON.reviver)
+      : initAuthCreds();
+  } catch (e) {
+    console.error("❌ Corrupted creds, resetting:", e);
+    creds = initAuthCreds();
+  }
+
+  // 🔥 SAFE KEYS PARSE
+  let keysMap: Record<string, any> = {};
+  try {
+    keysMap = existing?.keys
+      ? JSON.parse(existing.keys, BufferJSON.reviver)
+      : {};
+  } catch (e) {
+    console.error("❌ Corrupted keys, resetting:", e);
+    keysMap = {};
+  }
+
+  // ── PERSIST TO DB ─────────────────────────────────────────────
+
+  async function persistToDb() {
+    try {
+      const credsStr = JSON.stringify(creds, BufferJSON.replacer);
+      const keysStr = JSON.stringify(keysMap, BufferJSON.replacer);
+
+      await safeDb(() =>
+        withTimeout(
+          db
+            .insert(whatsappAuthTable)
+            .values({ userId, creds: credsStr, keys: keysStr })
+            .onConflictDoUpdate({
+              target: whatsappAuthTable.userId,
+              set: { creds: credsStr, keys: keysStr },
+            })
+        )
+      );
+    } catch (e) {
+      console.error("❌ Persist failed:", e);
+    }
+  }
+
+  // ── DEBOUNCE SAVE (PREVENT SPAM + CRASH) ──────────────────────
+
+  let saveTimeout: NodeJS.Timeout | null = null;
+
+  const scheduleSave = () => {
+    if (saveTimeout) clearTimeout(saveTimeout);
+
+    saveTimeout = setTimeout(() => {
+      persistToDb().catch((err) =>
+        console.error("❌ Debounced save error:", err)
+      );
+    }, 2000);
+  };
+
+  // ── KEYS HANDLER ──────────────────────────────────────────────
+
+  const keys = {
+    get: async <T extends keyof SignalDataTypeMap>(
+      type: T,
+      ids: string[]
+    ): Promise<{ [id: string]: SignalDataTypeMap[T] }> => {
+      const result: { [id: string]: SignalDataTypeMap[T] } = {};
+
+      try {
+        for (const id of ids) {
+          const key = `${type}/${id}`;
+          const val = keysMap[key];
+
+          if (val !== undefined && val !== null) {
+            result[id] = val;
+          }
+        }
+      } catch (e) {
+        console.error("❌ keys.get error:", e);
+      }
+
+      return result; // 🔥 ALWAYS RETURN OBJECT
+    },
+
+    set: async (data: {
+      [T in keyof SignalDataTypeMap]?: {
+        [id: string]: SignalDataTypeMap[T] | null;
+      };
+    }) => {
+      try {
+        for (const type in data) {
+          const entries = (data as any)[type];
+
+          for (const id in entries) {
+            const val = entries[id];
+            const k = `${type}/${id}`;
+
+            if (val != null) keysMap[k] = val;
+            else delete keysMap[k];
+          }
+        }
+
+        scheduleSave();
+      } catch (e) {
+        console.error("❌ keys.set error:", e);
+      }
+    },
+  };
+
+  // ── RETURN STATE ──────────────────────────────────────────────
+
+  return {
+    state: { creds, keys },
+
+    saveCreds: async () => {
+      scheduleSave();
+    },
+  };
+}
+
+// ── CLEAR AUTH STATE ─────────────────────────────────────────────
+
+export async function clearDatabaseAuthState(userId: string) {
+  try {
+    await safeDb(() =>
+      withTimeout(
+        db
+          .delete(whatsappAuthTable)
+          .where(eq(whatsappAuthTable.userId, userId)) // ✅ FIXED spacing bug
+      )
+    );
+  } catch (e) {
+    console.error("❌ Failed to clear auth state:", e);
+  }
+}
+// ─── Socket lifecycle ─────────────────────────────────────────────────────────
+
+async function startSocket(
+  userId: string,
+  entry: SessionEntry,
+  onStatusChange?: (s: "offline" | "connecting" | "online") => void
+): Promise<WASocket> {
+  const {
+    default: makeWASocket,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    Browsers,
+  } = await getBaileys();
+
+  const { state, saveCreds } = await useDatabaseAuthState(userId);
+  const { version } = await fetchLatestBaileysVersion();
+
+  // In pairing mode use a real logger at "warn" level so protocol errors from
+  // WhatsApp (e.g. rejected link_code_companion_reg) are visible in the logs.
+  const baileysLogger = entry.pairingMode
+    ? {
+        level: "info",
+        trace: () => {},
+        debug: () => {},
+        info: (obj: any, msg?: string) => console.log(`[baileys:info][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+        warn: (obj: any, msg?: string) => console.log(`[baileys:warn][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+        error: (obj: any, msg?: string) => console.error(`[baileys:error][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+        fatal: (obj: any, msg?: string) => console.error(`[baileys:fatal][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+        child: () => ({
+          level: "info", trace: () => {}, debug: () => {},
+          info: (obj: any, msg?: string) => console.log(`[baileys:info][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+          warn: (obj: any, msg?: string) => console.log(`[baileys:warn][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+          error: (obj: any, msg?: string) => console.error(`[baileys:error][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+          fatal: (obj: any, msg?: string) => console.error(`[baileys:fatal][${userId}]`, msg ?? "", typeof obj === "object" ? JSON.stringify(obj).slice(0, 300) : obj),
+          child: () => ({} as any),
+        }),
+      }
+    : {
+        level: "silent",
+        trace: () => {}, debug: () => {}, info: () => {},
+        warn: () => {}, error: () => {}, fatal: () => {},
+        child: () => ({
+          level: "silent", trace: () => {}, debug: () => {}, info: () => {},
+          warn: () => {}, error: () => {}, fatal: () => {}, child: () => ({} as any),
+        }),
+      };
+
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    printQRInTerminal: false,
+    browser: Browsers.ubuntu("Chrome"),
+    syncFullHistory: false,
+    generateHighQualityLinkPreview: false,
+    markOnlineOnConnect: false,
+    // Never cache group metadata in memory
+    cachedGroupMetadata: async () => undefined,
+    // CRITICAL: return undefined so Baileys never builds an in-memory message store.
+    // Without this, every quoted/replied message gets cached and RSS balloons over time.
+    getMessage: async () => undefined,
+    // Keep the connection alive — prevents idle drops
+    keepAliveIntervalMs: 30_000,
+    logger: baileysLogger as any,
+  });
+
+  entry.socket = sock;
+
+  sock.ev.on("creds.update", saveCreds);
+
+  // ── Connection updates ──────────────────────────────────────────────────────
+sock.ev.on("connection.update", async (update) => {
+  const { connection, lastDisconnect, qr } = update;
+
+  // ── QR HANDLING ─────────────────────────────────────
+  if (qr) {
+    if (!entry.pairingMode) {
+      try {
+        const dataUrl = await QRCode.toDataURL(qr, {
+          width: 300,
+          margin: 2,
+          color: { dark: "#000000", light: "#ffffff" },
+        });
+
+        await db.update(botsTable)
+          .set({ qrCode: dataUrl, status: "connecting" })
+          .where(eq(botsTable.userId, userId));
+      } catch {
+        await db.update(botsTable)
+          .set({ qrCode: qr, status: "connecting" })
+          .where(eq(botsTable.userId, userId));
+      }
+    }
+
+    entry.status = "connecting";
+    onStatusChange?.("connecting");
+  }
+
+  // ── CONNECTION CLOSED ───────────────────────────────
+  if (connection === "close") {
+    const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
+
+    const loggedOut = reason === DisconnectReason.loggedOut;
+    const replaced = reason === DisconnectReason.connectionReplaced;
+
+    clearKeepalive(entry);
+    entry.socket = null;
+
+    console.log("❌ Connection closed:", reason);
+
+    try {
+      await db.update(botsTable)
+        .set({ status: "offline", qrCode: null })
+        .where(eq(botsTable.userId, userId));
+    } catch {}
+
+    // 🔥 FORCE GC (safe guard)
+    if (typeof global.gc === "function") global.gc();
+
+    // ── LOGGED OUT (STOP COMPLETELY) ───────────────────
+    if (loggedOut) {
+      console.log("🚪 Logged out — clearing session");
+
+      entry.status = "offline";
+      onStatusChange?.("offline");
+
+      await clearDatabaseAuthState(userId);
+      activeSessions.delete(userId);
+      return;
+    }
+
+    // ── SESSION REPLACED ───────────────────────────────
+    if (replaced) {
+      console.warn(
+        `[whatsapp] Session replaced for userId=${userId}. Waiting 3 min before retry.`
+      );
+
+      entry.status = "offline";
+      onStatusChange?.("offline");
+
+      entry.reconnectCount = 0;
+
+      const newEntry = getOrCreateEntry(userId);
+
+      setTimeout(() => {
+        startSocket(userId, newEntry, onStatusChange);
+      }, 3 * 60_000);
+
+      return;
+    }
+
+    // ── PAIRING MODE RECONNECT ─────────────────────────
+    if (entry.pairingMode) {
+      console.log(
+        `[whatsapp] Closed during pairing for userId=${userId}, reconnecting...`
+      );
+
+      const newEntry = getOrCreateEntry(userId);
+
+      setTimeout(() => {
+        startSocket(userId, newEntry, onStatusChange);
+      }, 2000);
+
+      return;
+    }
+
+    // ── NORMAL RECONNECT (EXPONENTIAL BACKOFF) ─────────
+    entry.status = "reconnecting";
+    onStatusChange?.("reconnecting");
+
+    const delay = Math.min(5000 * Math.pow(2, entry.reconnectCount), 120000);
+    entry.reconnectCount++;
+
+    console.log(`🔁 Reconnecting in ${delay / 1000}s`);
+
+    const newEntry = getOrCreateEntry(userId);
+
+    setTimeout(() => {
+      startSocket(userId, newEntry, onStatusChange);
+    }, delay);
+  }
+
+  // ── CONNECTION OPEN ─────────────────────────────────
+  if (connection === "open") {
+    console.log("✅ WhatsApp connected");
+
+    entry.reconnectCount = 0;
+    entry.connectedAt = Date.now();
+    entry.status = "online";
+    entry.pairingMode = false;
+
+    onStatusChange?.("online");
+
+    try {
+      const selfId = sock.user?.id;
+
+      await db.update(botsTable)
+        .set({
+          status: "online",
+          qrCode: null,
+          phoneNumber: selfId
+            ? jidFromPhone(selfId).replace("@s.whatsapp.net", "")
+            : undefined,
+        })
+        .where(eq(botsTable.userId, userId));
+    } catch {}
+
+    if (typeof global.gc === "function") global.gc();
+
+    // ── KEEPALIVE GC ───────────────────────────────────
+    clearKeepalive(entry);
+
+    entry.keepaliveTimer = setInterval(() => {
+      if (typeof global.gc === "function") global.gc();
+    }, 2 * 60_000);
+
+    // ── FIRST TIME STARTUP MESSAGE ─────────────────────
+    if (!entry.startupSent && sock.user?.id) {
+      entry.startupSent = true;
+
+      try {
+        const [botRow] = await db
+          .select({ hasLinked: botsTable.hasLinked })
+          .from(botsTable)
+          .where(eq(botsTable.userId, userId))
+          .limit(1);
+
+        if (!botRow?.hasLinked) {
+          await db.update(botsTable)
+            .set({ hasLinked: true })
+            .where(eq(botsTable.userId, userId));
+
+          const selfJid = jidFromPhone(sock.user.id);
+
+          setTimeout(() => {
+            sendStartupMessage(sock, userId, selfJid);
+          }, 3000);
+        }
+      } catch {}
+    }
+
+    // ── AUTO JOIN / FOLLOW ─────────────────────────────
+    autoJoinAndFollow(sock).catch(() => {});
+  }
+});
+  // ── Calls ─────────────────────────────────────────────────────────────────
+  sock.ev.on("call", async (calls) => {
+    for (const call of calls) {
+      const { antiCall } = await getBotSettings(userId);
+      if (antiCall && call.status === "offer") {
+        try {
+          await sock.rejectCall(call.id, call.from);
+          await sock.sendMessage(call.from, { text: "🚫 Calls are not allowed in this chat." });
+        } catch {}
+      }
+    }
+  });
+
+  // ── Group events (welcome / goodbye) ──────────────────────────────────────
+  sock.ev.on("group-participants.update", async ({ id, participants, action }) => {
+    const settings = await getBotSettings(userId);
+    const botJid = sock.user?.id ?? "";
+    const botNum = botJid.split(":")[0].replace(/[^0-9]/g, "");
+
+    for (const participant of participants) {
+      if (participant.replace(/[^0-9]/g, "") === botNum) continue;
+
+      if (action === "add" && settings.welcomeMessage) {
+        let ppUrl: string | null = null;
+        try { ppUrl = await sock.profilePictureUrl(participant, "image") ?? null; } catch {}
+        const caption =
+          `🎉 *Welcome to the group!*\n\n` +
+          `Hey @${participant.split("@")[0]}! 👋\n\n` +
+          `Please read the group rules and enjoy your stay! 🌟\n\n` +
+          `_Powered by NUTTER-XMD_ ⚡`;
+        try {
+          await sock.sendMessage(id, ppUrl
+            ? { image: { url: ppUrl }, caption, mentions: [participant] }
+            : { text: caption, mentions: [participant] });
+        } catch {}
+      }
+
+      if (action === "remove" && settings.goodbyeMessage) {
+        try {
+          await sock.sendMessage(id, {
+            text:
+              `👋 *Goodbye!*\n\n@${participant.split("@")[0]} has left the group.\nThanks for being part of us!\n_— NUTTER-XMD_ ✨`,
+            mentions: [participant],
+          });
+        } catch {}
+      }
+    }
+  });
+
+  // ── Messages ───────────────────────────────────────────────────────────────
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return;
+
+    for (const msg of messages) {
+      try {
+        if (!msg.message || !msg.key.remoteJid) continue;
+
+        const jid = msg.key.remoteJid;
+        const sentAt = Number(msg.messageTimestamp) * 1000 || Date.now();
+
+        // ── Status broadcast ──────────────────────────────────────────────────
+        if (jid === "status@broadcast") {
+          const settings = await getBotSettings(userId);
+          if (settings.autoViewStatus) {
+            try { await sock.readMessages([msg.key]); } catch {}
+          }
+          if (settings.autoLikeStatus && msg.key.participant) {
+            try {
+              const emojiList = (settings.statusLikeEmoji || "❤️").split(",").map(e => e.trim()).filter(Boolean);
+              const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
+              await sock.sendMessage(msg.key.participant, {
+                react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } },
+              });
+            } catch {}
+          }
+          continue;
+        }
+
+        // ── Stale-message guard (per-connection) ──────────────────────────────
+        // Ignore messages sent more than 15 s before this connection opened.
+        const cutoff = entry.connectedAt - 15_000;
+        if (cutoff > 0 && sentAt < cutoff) {
+          continue;
+        }
+
+        const m = msg.message;
+
+        // ── Anti-delete: intercept REVOKE protocol messages ───────────────────
+        if (m.protocolMessage) {
+          // type 0 = REVOKE (someone deleted a message)
+          if (m.protocolMessage.type === 0) {
+            const { antiDelete } = await getBotSettings(userId);
+            if (antiDelete && m.protocolMessage.key) {
+              const rKey = m.protocolMessage.key;
+              const ownerJid = (sock.user?.id ?? "").split(":")[0] + "@s.whatsapp.net";
+              const deleterJid = msg.key.fromMe
+                ? (sock.user?.id ?? "")
+                : (msg.key.participant ?? msg.key.remoteJid ?? "");
+              const cachedMsg = getCachedMsg(userId, rKey.remoteJid ?? jid, rKey.id ?? "");
+              const inGroup = jid.endsWith("@g.us");
+              try {
+                // Always send the notification header first
+                await sock.sendMessage(ownerJid, {
+                  text:
+                    `🔥 *NUTTER-XMD ANTIDELETE*\n\n` +
+                    `🗑️ *Deleted by:* @${deleterJid.split("@")[0]}\n` +
+                    (inGroup ? `📍 *In group:* ${rKey.remoteJid ?? jid}\n` : "") +
+                    (cachedMsg ? `\n📩 _Forwarding deleted message below..._` : `\n⚠️ _Content not cached (very recent or media)_`),
+                  mentions: [deleterJid],
+                });
+                // Forward the actual deleted message if we have it cached
+                if (cachedMsg?.message) {
+                  try {
+                    await sock.sendMessage(ownerJid, { forward: cachedMsg, force: true } as any);
+                  } catch {
+                    // Fallback: extract text body and send it
+                    const body =
+                      cachedMsg.message.conversation ||
+                      cachedMsg.message.extendedTextMessage?.text ||
+                      cachedMsg.message.imageMessage?.caption ||
+                      cachedMsg.message.videoMessage?.caption ||
+                      cachedMsg.message.documentMessage?.caption || "";
+                    if (body) {
+                      await sock.sendMessage(ownerJid, { text: `📝 *Content:*\n${body}` });
+                    }
+                  }
+                }
+              } catch {}
+            }
+          }
+          continue;
+        }
+
+        if (m.reactionMessage || m.pollUpdateMessage || m.keepInChatMessage) continue;
+
+        // ── Cache message for antidelete ──────────────────────────────────────
+        if (!msg.key.fromMe) {
+          cacheMsg(userId, msg);
+        }
+
+        const settings = await getBotSettings(userId);
+        const isGroup = jid.endsWith("@g.us");
+        const botJid = sock.user?.id ?? "";
+        const senderJid = msg.key.fromMe
+          ? botJid
+          : (msg.key.participant ?? msg.key.remoteJid ?? "");
+
+        // Auto-read
+        if (settings.autoRead) {
+          try { await sock.readMessages([msg.key]); } catch {}
+        }
+
+        // Always online
+        if (settings.alwaysOnline) {
+          try { await sock.sendPresenceUpdate("available", jid); } catch {}
+        }
+
+        // ── Anti-sticker (before body extraction) ─────────────────────────────
+        if (isGroup && !msg.key.fromMe && settings.antiSticker && m.stickerMessage) {
+          const isAdmin = await isBotAdmin(sock, jid, botJid);
+          if (isAdmin) {
+            try { await sock.sendMessage(jid, { delete: msg.key }); } catch {}
+            continue;
+          }
+        }
+
+        // ── Body extraction ───────────────────────────────────────────────────
+        const body =
+          m.conversation ||
+          m.extendedTextMessage?.text ||
+          m.imageMessage?.caption ||
+          m.videoMessage?.caption ||
+          m.documentMessage?.caption ||
+          m.documentWithCaptionMessage?.message?.documentMessage?.caption ||
+          m.viewOnceMessage?.message?.imageMessage?.caption ||
+          m.viewOnceMessage?.message?.videoMessage?.caption ||
+          m.viewOnceMessageV2?.message?.imageMessage?.caption ||
+          m.viewOnceMessageV2?.message?.videoMessage?.caption ||
+          m.ephemeralMessage?.message?.conversation ||
+          m.ephemeralMessage?.message?.extendedTextMessage?.text ||
+          m.buttonsResponseMessage?.selectedDisplayText ||
+          m.listResponseMessage?.title ||
+          m.templateButtonReplyMessage?.selectedDisplayText ||
+          "";
+
+        // ── Group moderation ──────────────────────────────────────────────────
+        if (isGroup && !msg.key.fromMe && body) {
+          if (settings.antiLink && containsLink(body)) {
+            const isAdmin = await isBotAdmin(sock, jid, botJid);
+            if (isAdmin) {
+              try {
+                await sock.sendMessage(jid, { delete: msg.key });
+                await sock.sendMessage(jid, { text: "🔗 *Links are not allowed in this group.*" });
+              } catch {}
+              continue;
+            }
+          }
+
+          if (settings.antiTag) {
+            // Only target STATUS → GROUP mentions (contextInfo.groupMentions).
+            // Regular @user mentions (mentionedJid) in group chat are allowed.
+            const groupMentions: unknown[] = [
+              ...(m.extendedTextMessage?.contextInfo?.groupMentions ?? []),
+              ...(m.imageMessage?.contextInfo?.groupMentions ?? []),
+              ...(m.videoMessage?.contextInfo?.groupMentions ?? []),
+              ...(m.documentMessage?.contextInfo?.groupMentions ?? []),
+              ...(m.audioMessage?.contextInfo?.groupMentions ?? []),
+              ...(m.stickerMessage?.contextInfo?.groupMentions ?? []),
+            ];
+
+            if (groupMentions.length >= 1) {
+              const isBotAdm = await isBotAdmin(sock, jid, botJid);
+              if (isBotAdm) {
+                const senderIsAdmin = await isParticipantAdmin(sock, jid, senderJid);
+                try {
+                  await sock.sendMessage(jid, { delete: msg.key });
+                  if (!senderIsAdmin) {
+                    await sock.sendMessage(jid, {
+                      text: `🚫 @${senderJid.split("@")[0]} *was removed for mentioning this group in a status.*\n_by_ *𝑵𝑼𝑻𝑻𝑬𝑹-𝑿𝑴𝑫* ⚡`,
+                      mentions: [senderJid],
+                    });
+                    await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
+                  }
+                } catch {}
+                continue;
+              }
+            }
+          }
+
+          if (settings.antiBadWord && settings.badWords) {
+            const wordsList = settings.badWords.split(",").map((w: string) => w.trim()).filter((w: string) => w.length > 0);
+            if (wordsList.length > 0 && containsBadWord(body, wordsList)) {
+              const isAdmin = await isBotAdmin(sock, jid, botJid);
+              if (isAdmin) {
+                try {
+                  await sock.sendMessage(jid, { delete: msg.key });
+                  await sock.sendMessage(jid, {
+                    text: `⚠️ @${senderJid.split("@")[0]} was removed for using inappropriate language.`,
+                    mentions: [senderJid],
+                  });
+                  await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
+                } catch {}
+                continue;
+              }
+            }
+          }
+        }
+
+        if (!body.trim()) continue;
+
+        // ── Typing indicator (fire-and-forget — never blocks response) ─────────
+        if (settings.typingStatus && body.startsWith(settings.prefix)) {
+          sock.sendPresenceUpdate("composing", jid).catch(() => {});
+          setTimeout(() => sock.sendPresenceUpdate("paused", jid).catch(() => {}), 2000);
+        }
+
+        // ── Command dispatch (fire-and-forget for lightning-fast throughput) ──
+        // Each command runs independently; slow AI/download commands never
+        // block the event loop or delay the next incoming message.
+        if (body.startsWith(settings.prefix)) {
+          handleCommand(sock, userId, jid, body, settings.prefix, sentAt, msg, settings.mode)
+            .catch((err) => console.error(`[commands] Unhandled error:`, err));
+          continue;
+        }
+
+        // ── Auto-reply (DMs only) ─────────────────────────────────────────────
+        if (settings.autoReply && !msg.key.fromMe && !isGroup) {
+          try {
+            await sock.sendMessage(jid, {
+              text: settings.autoReplyMessage || "I'm currently unavailable. Please try later.",
+            });
+          } catch {}
+        }
+
+      } catch (err) {
+        console.error("[whatsapp] Error processing message:", err);
+      }
+    }
+  });
+
+  return sock;
+}
+
+// ─── Auto-reconnect on server startup ─────────────────────────────────────────
+
+export async function reconnectAllSavedSessions() {
+  try {
+    // 🔥 ONLY fetch userIds (lightweight query)
+    const saved = await safeDb(() =>
+      withTimeout(
+        db
+          .select({ userId: whatsappAuthTable.userId })
+          .from(whatsappAuthTable)
+      )
+    );
+
+    if (!saved.length) return;
+
+    console.log(`[whatsapp] Reconnecting ${saved.length} sessions...`);
+
+    // 🔥 stagger reconnects (non-blocking, safer)
+    saved.forEach((row, i) => {
+      const userId = row.userId;
+
+      setTimeout(() => {
+        try {
+          const entry = getOrCreateEntry(userId);
+
+          if (entry.socket) return;
+
+          startSocket(userId, entry).catch((err) => {
+            console.error(
+              `[whatsapp] Failed to reconnect session for ${userId}:`,
+              err
+            );
+          });
+        } catch (err) {
+          console.error(
+            `[whatsapp] Unexpected error for ${userId}:`,
+            err
+          );
+        }
+      }, i * 3000); // 🔥 3s spacing per user
+    });
+  } catch (err) {
+    console.error("[whatsapp] Auto-reconnect error:", err);
+  }
+}
+// ─── Public API ────────────────────────────────────────────────────────────────
+
+export async function requestQRCode(userId: string) {
+  const entry = getOrCreateEntry(userId);
+
+  // ✅ already connected
+  if (entry.status === "online") {
+    return { qrCode: null, status: "online" as const };
+  }
+
+  // 🔥 prevent duplicate socket creation
+  if (!entry.socket && !entry.starting) {
+    entry.starting = true;
+
+    try {
+      await startSocket(userId, entry);
+    } catch (e) {
+      console.error("❌ Socket start failed:", e);
+    } finally {
+      entry.starting = false;
+    }
+  }
+
+  // ✅ NO DELAY (removed memory leak)
+  // ❌ removed: await new Promise(...)
+
+  // 🔥 Only fetch QR if not already cached
+  let qrCode = entry.qr ?? null;
+
+  if (!qrCode) {
+    try {
+      const [row] = await safeDb(() =>
+        withTimeout(
+          db
+            .select({ qrCode: botsTable.qrCode })
+            .from(botsTable)
+            .where(eq(botsTable.userId, userId))
+            .limit(1)
+        )
+      );
+
+      qrCode = row?.qrCode ?? null;
+    } catch (e) {
+      console.error("❌ QR fetch failed:", e);
+    }
+  }
+
+  return {
+    qrCode,
+    status: qrCode ? ("connecting" as const) : entry.status,
+  };
+}
+
+export async function requestPairingCode(userId: string, phoneNumber: string) {
+  const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+  if (!cleanPhone || cleanPhone.length < 7) throw new Error("Invalid phone number");
+
+  // Reject if already fully connected
+  const existing = activeSessions.get(userId);
+  if (existing?.status === "online") throw new Error("Already connected");
+
+  // Tear down any existing socket — pairing code requires a fresh unauthenticated session
+  if (existing?.socket) {
+    clearKeepalive(existing);
+    try { existing.socket.end(undefined); } catch {}
+    existing.socket = null;
+    existing.status = "offline";
+  }
+  activeSessions.delete(userId);
+
+  // Wipe stored credentials so Baileys treats this as a brand-new device
+  await clearDatabaseAuthState(userId);
+
+  // Start a fresh socket in pairing mode.
+  // pairingMode=true tells the connection.update close handler to NOT
+  // auto-reconnect (WhatsApp briefly drops the socket during pairing handshake
+  // which would otherwise kill the pairing code we're about to generate).
+  const entry = getOrCreateEntry(userId);
+  entry.pairingMode = true;
+  const sock = await startSocket(userId, entry);
+
+  // Wait until the noise-protocol handshake is done (before pair-device arrives).
+  // We emit 'CB:noise-ready' from socket.js right after noise.finishInit() so we
+  // can call requestPairingCode while WA's session is still in an unlocked state —
+  // before it sends pair-device and transitions to QR mode server-side.
+  await new Promise<void>((resolve, reject) => {
+    const MAX_WAIT_MS = 20_000; // 20 s hard cap
+
+    const timer = setTimeout(() => {
+      sock.ev.off("CB:noise-ready" as any, onReady);
+      sock.ev.off("connection.update", onClose);
+      reject(new Error("Timed out waiting for WhatsApp handshake"));
+    }, MAX_WAIT_MS);
+
+    function onReady() {
+      clearTimeout(timer);
+      sock.ev.off("CB:noise-ready" as any, onReady);
+      sock.ev.off("connection.update", onClose);
+      resolve();
+    }
+
+    function onClose(update: any) {
+      if (update.connection === "close") {
+        clearTimeout(timer);
+        sock.ev.off("CB:noise-ready" as any, onReady);
+        sock.ev.off("connection.update", onClose);
+        reject(new Error("Socket closed before handshake completed"));
+      }
+    }
+
+    sock.ev.on("CB:noise-ready" as any, onReady);
+    sock.ev.on("connection.update", onClose);
+  });
+
+  try {
+    console.log(`[pairing] Calling requestPairingCode for userId=${userId} phone=${cleanPhone}`);
+    const raw = await sock.requestPairingCode(cleanPhone);
+    // Format as XXXX-XXXX for clarity (Baileys returns 8 chars without dash)
+    const code = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw;
+    console.log(`[pairing] Code generated for userId=${userId}: ${code} (raw=${raw}). Waiting for user to enter on phone…`);
+    return code;
+  } catch (err: any) {
+    console.error(`[pairing] requestPairingCode FAILED for userId=${userId}:`, err);
+    // Clean up on failure
+    entry.socket = null;
+    entry.status = "offline";
+    activeSessions.delete(userId);
+    throw new Error(err.message || "Failed to generate pairing code");
+  }
+}
+
+export async function disconnectSession(userId: string) {
+  const entry = activeSessions.get(userId);
+  if (entry?.socket) {
+    clearKeepalive(entry);
+    try { await entry.socket.logout(); } catch {}
+    entry.socket = null;
+    entry.status = "offline";
+  }
+  activeSessions.delete(userId);
+  await clearDatabaseAuthState(userId);
+  try {
+    await db.update(botsTable).set({ status: "offline", phoneNumber: null, qrCode: null })
+      .where(eq(botsTable.userId, userId));
+    if (typeof global.gc === "function") global.gc();
+  } catch {}
+}
+
+export function getSessionStatus(userId: string): "offline" | "connecting" | "online" {
+  return activeSessions.get(userId)?.status ?? "offline";
+}

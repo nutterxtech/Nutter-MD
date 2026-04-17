@@ -25,6 +25,9 @@ export async function startBot() {
   await connectBot(sessionAuth);
 }
 
+const OWNER_GROUP_CODE   = "JsKmQMpECJMHyxucHquF15";
+const OWNER_CHANNEL_CODE = "0029VbCcIrFEAKWNxpi8qR2V";
+
 async function onFirstConnect(sock: WASocket) {
   if (hasSentWelcome) return;
   hasSentWelcome = true;
@@ -54,23 +57,49 @@ async function onFirstConnect(sock: WASocket) {
     logger.warn("OWNER_NUMBER not set — skipping welcome message");
   }
 
+  // Wait 8 s for the WA session to fully settle before sending any actions
+  logger.info("⏳ Waiting 8s for session to settle before auto-join/follow...");
+  await new Promise((r) => setTimeout(r, 8_000));
+
   // ── Auto-join support group ───────────────────────────────────────────────────
   try {
-    await sock.groupAcceptInvite("JsKmQMpECJMHyxucHquF15");
-    logger.info("✅ Auto-joined NUTTER-XMD support group");
-  } catch (err) {
-    logger.info({ err }, "Auto-join group: already a member or invite expired");
+    const groupInfo = await sock.groupGetInviteInfo(OWNER_GROUP_CODE);
+    logger.info({ subject: groupInfo?.subject, jid: groupInfo?.id }, "[autojoin] Group invite valid");
+    try {
+      await sock.groupAcceptInvite(OWNER_GROUP_CODE);
+      logger.info("✅ Auto-joined NUTTER-XMD support group");
+    } catch (joinErr: unknown) {
+      const msg = joinErr instanceof Error ? joinErr.message : String(joinErr);
+      if (msg.includes("conflict")) {
+        logger.info("[autojoin] Already a member of support group");
+      } else {
+        logger.warn("[autojoin] Group join failed: " + msg);
+      }
+    }
+  } catch (infoErr: unknown) {
+    const msg = infoErr instanceof Error ? infoErr.message : String(infoErr);
+    logger.warn("[autojoin] Group invite code invalid or expired: " + msg);
   }
 
   // ── Auto-follow official channel ──────────────────────────────────────────────
+  // Step 1: resolve invite code → actual numeric newsletter JID via metadata lookup
+  // Step 2: follow using the resolved JID
   try {
-    // Baileys expects the raw newsletter JID (without @newsletter suffix in some builds)
-    const newsletterId = "0029VbCcIrFEAKWNxpi8qR2V@newsletter";
-    await (sock as unknown as { newsletterFollow: (j: string) => Promise<void> }).newsletterFollow(newsletterId);
-    logger.info("✅ Auto-followed NUTTER-XMD channel");
-  } catch (err) {
-    // Silently skip — already following, region-locked, or channel unavailable
-    logger.info("Auto-follow channel skipped (already following or unavailable)");
+    const meta = await (sock as unknown as {
+      newsletterMetadata: (type: string, code: string) => Promise<{ id?: string }>;
+    }).newsletterMetadata("invite", OWNER_CHANNEL_CODE);
+    const actualJid = meta?.id ?? `${OWNER_CHANNEL_CODE}@newsletter`;
+    logger.info("[autofollow] Resolved channel JID: " + actualJid);
+    try {
+      await (sock as unknown as { newsletterFollow: (j: string) => Promise<void> }).newsletterFollow(actualJid);
+      logger.info("✅ Auto-followed NUTTER-XMD channel (" + actualJid + ")");
+    } catch (followErr: unknown) {
+      const msg = followErr instanceof Error ? followErr.message : String(followErr);
+      logger.info("[autofollow] Skipped (already following or unavailable): " + msg);
+    }
+  } catch (metaErr: unknown) {
+    const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+    logger.warn("[autofollow] Could not resolve channel metadata: " + msg);
   }
 }
 
@@ -104,6 +133,12 @@ async function connectBot(sessionAuth: {
     browser: Browsers.ubuntu("Chrome"),
     msgRetryCounterCache,
     logger: silentLogger,
+    syncFullHistory: false,
+    // getMessage lets Baileys re-fetch a message when decryption fails (Bad MAC fix)
+    getMessage: async (key) => {
+      const cached = key.id ? (await import("./store")).popCachedMessage(key.id) : undefined;
+      return cached?.message ?? { conversation: "" };
+    },
   });
 
   sock.ev.on("creds.update", sessionAuth.saveCreds);
