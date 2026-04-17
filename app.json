@@ -31,10 +31,6 @@
       "value": ".",
       "required": false
     },
-    "GITHUB_TOKEN": {
-      "description": "GitHub personal access token (optional but strongly recommended for the admin fork list). Without it the GitHub API is rate-limited to 60 requests/hour on shared Heroku IPs, which causes the admin dashboard to fail. Create one at github.com/settings/tokens — no special scopes needed for public repos.",
-      "required": false
-    },
     "NODE_ENV": {
       "description": "Node environment.",
       "value": "production",
