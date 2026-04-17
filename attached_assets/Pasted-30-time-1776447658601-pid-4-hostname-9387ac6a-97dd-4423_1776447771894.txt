@@ -1,0 +1,10 @@
+30,"time":1776447658601,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","msg":"✅ Sent welcome message to owner"}
+2026-04-17T17:40:58.601690+00:00 app[web.1]: {"level":30,"time":1776447658601,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","msg":"⏳ Waiting 8s for session to settle before auto-join/follow..."}
+2026-04-17T17:41:06.990447+00:00 app[web.1]: {"level":30,"time":1776447666987,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","subject":"🔴𝐁𝐎𝐓 𝐃𝐄𝐏𝐋𝐎𝐘𝐌𝐄𝐍𝐓🔴","jid":"120363418974198865@g.us","msg":"[autojoin] Group invite valid"}
+2026-04-17T17:41:07.548115+00:00 app[web.1]: {"level":30,"time":1776447667545,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","msg":"[autojoin] Already a member of support group"}
+2026-04-17T17:41:07.884821+00:00 app[web.1]: {"level":30,"time":1776447667884,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","msg":"[autofollow] Resolved channel JID: 120363424656965542@newsletter"}
+2026-04-17T17:41:08.125332+00:00 app[web.1]: {"level":30,"time":1776447668125,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","msg":"[autofollow] Skipped (already following or unavailable): Failed to newsletter follow, unexpected response structure."}
+2026-04-17T17:41:58.234341+00:00 app[web.1]: {"level":30,"time":1776447718234,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","type":"append","count":2,"msg":"📨 messages.upsert fired"}
+2026-04-17T17:41:58.235256+00:00 app[web.1]: {"level":30,"time":1776447718234,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","stubType":2,"msg":"↩ Skipped protocol notification (not a real message)"}
+2026-04-17T17:41:58.573478+00:00 app[web.1]: {"level":30,"time":1776447718569,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T17:41:58.691029+00:00 app[web.1]: {"level":30,"time":1776447718690,"pid":4,"hostname":"9387ac6a-97dd-4423-9e31-d2c2c897a97f","type":"notify","count":1,"msg":"📨 messages.upsert fired"}

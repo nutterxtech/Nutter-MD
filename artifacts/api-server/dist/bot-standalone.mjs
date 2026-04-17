@@ -6327,21 +6327,35 @@ async function connectBot(sessionAuth) {
       return;
     }
     const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
+    const botNumber = (sock.user?.id || "").split(":")[0].split("@")[0];
     for (const msg of messages) {
       try {
-        if (msg.key?.fromMe) continue;
+        const remoteJid = msg.key?.remoteJid || "";
+        const remoteNumber = remoteJid.split(":")[0].split("@")[0];
+        if (msg.key?.fromMe) {
+          const isSelfChat = botNumber && remoteNumber === botNumber;
+          if (!isSelfChat) {
+            logger.info({ jid: remoteJid }, "\u21A9 fromMe echo \u2014 skipped (bot's own outgoing message)");
+            continue;
+          }
+          logger.info({ jid: remoteJid }, "\u{1F464} Self-chat command from owner's device \u2014 processing");
+        }
         const hasMessage = !!msg.message;
         const hasJid = !!msg.key?.remoteJid;
         if (!hasMessage || !hasJid) {
           const stubType = msg.messageStubType ?? 0;
           if (stubType === 0) {
-            logger.warn({ hasMessage, hasJid, fromMe: msg.key?.fromMe, stubType }, "\u26A0\uFE0F Decryption failure \u2014 message arrived but content is null. Baileys will auto-retry.");
+            logger.warn(
+              { jid: remoteJid, hasMessage, hasJid, fromMe: msg.key?.fromMe, stubType },
+              "\u26A0\uFE0F Decryption failure \u2014 content is null. Session mismatch? Re-pair to get fresh session files."
+            );
           } else {
-            logger.info({ stubType }, "\u21A9 Skipped protocol notification (not a real message)");
+            logger.info({ stubType, jid: remoteJid }, "\u21A9 Protocol notification \u2014 skipped");
           }
           continue;
         }
         const jid = msg.key.remoteJid;
+        logger.info({ jid, jidType: jid?.split("@")[1] ?? "unknown", fromMe: msg.key.fromMe }, "\u27A1\uFE0F Passing to message handler");
         if (jid === "status@broadcast") {
           await handleStatusMessage(sock, msg);
           continue;

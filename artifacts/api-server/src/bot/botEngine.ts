@@ -215,10 +215,25 @@ async function connectBot(sessionAuth: {
 
     const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/\D/g, "");
 
+    // Derive the bot's own base phone number (strip device suffix and domain)
+    const botNumber = (sock.user?.id || "").split(":")[0].split("@")[0];
+
     for (const msg of messages) {
       try {
-        // Skip the bot's own sent messages (only relevant when type=="append")
-        if (msg.key?.fromMe) continue;
+        const remoteJid = msg.key?.remoteJid || "";
+        const remoteNumber = remoteJid.split(":")[0].split("@")[0];
+
+        if (msg.key?.fromMe) {
+          // Self-chat: owner typed a command in their own phone's "Saved Messages"
+          // (remoteJid = bot's own number). Process it so the owner can control
+          // the bot directly from the bot's linked device.
+          const isSelfChat = botNumber && remoteNumber === botNumber;
+          if (!isSelfChat) {
+            logger.info({ jid: remoteJid }, "↩ fromMe echo — skipped (bot's own outgoing message)");
+            continue;
+          }
+          logger.info({ jid: remoteJid }, "👤 Self-chat command from owner's device — processing");
+        }
 
         const hasMessage = !!msg.message;
         const hasJid = !!msg.key?.remoteJid;
@@ -226,14 +241,18 @@ async function connectBot(sessionAuth: {
           // stubType > 0 = protocol notification (join, leave, etc.) — not a decrypt failure
           const stubType = msg.messageStubType ?? 0;
           if (stubType === 0) {
-            logger.warn({ hasMessage, hasJid, fromMe: msg.key?.fromMe, stubType }, "⚠️ Decryption failure — message arrived but content is null. Baileys will auto-retry.");
+            logger.warn(
+              { jid: remoteJid, hasMessage, hasJid, fromMe: msg.key?.fromMe, stubType },
+              "⚠️ Decryption failure — content is null. Session mismatch? Re-pair to get fresh session files."
+            );
           } else {
-            logger.info({ stubType }, "↩ Skipped protocol notification (not a real message)");
+            logger.info({ stubType, jid: remoteJid }, "↩ Protocol notification — skipped");
           }
           continue;
         }
 
         const jid = msg.key.remoteJid;
+        logger.info({ jid, jidType: jid?.split("@")[1] ?? "unknown", fromMe: msg.key.fromMe }, "➡️ Passing to message handler");
 
         // Status broadcasts: auto-view / auto-like
         if (jid === "status@broadcast") {
