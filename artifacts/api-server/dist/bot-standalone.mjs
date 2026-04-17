@@ -5822,7 +5822,8 @@ async function handleMessage(sock, msg) {
   const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
   const botMode = (process.env["BOT_MODE"] || "public").toLowerCase();
   if (botMode === "private" && !isOwner) return;
-  const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || "";
+  const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || msg.message?.documentMessage?.caption || msg.message?.buttonsResponseMessage?.selectedButtonId || msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId || msg.message?.templateButtonReplyMessage?.selectedId || "";
+  logger.info({ jid, isGroup, fromMe: msg.key.fromMe, sender: senderNumber, bodyLen: body.length }, "Message received");
   if (!body) return;
   let groupSettings = null;
   let isSenderGroupAdmin = false;
@@ -5895,7 +5896,7 @@ async function handleMessage(sock, msg) {
     await sock.sendMessage(jid, { text: "You are banned from using this bot." });
     return;
   }
-  const ctx = { jid, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
+  const ctx = { jid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
   const [command, ...args] = commandText.split(" ");
   const cmd = command.toLowerCase();
@@ -6076,10 +6077,11 @@ async function onFirstConnect(sock) {
     logger.info({ err }, "Auto-join group: already a member or invite expired");
   }
   try {
-    await sock.newsletterFollow("0029VbCcIrFEAKWNxpi8qR2V@newsletter");
+    const newsletterId = "0029VbCcIrFEAKWNxpi8qR2V@newsletter";
+    await sock.newsletterFollow(newsletterId);
     logger.info("\u2705 Auto-followed NUTTER-XMD channel");
   } catch (err) {
-    logger.info({ err }, "Auto-follow channel: already following or unavailable");
+    logger.info("Auto-follow channel skipped (already following or unavailable)");
   }
 }
 async function connectBot(sessionAuth) {

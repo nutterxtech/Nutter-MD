@@ -37,6 +37,7 @@ const URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
 
 export interface CommandContext {
   jid: string;
+  isGroup: boolean;
   isOwner: boolean;
   isSenderGroupAdmin: boolean;
   isBotGroupAdmin: boolean;
@@ -103,7 +104,13 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     msg.message?.extendedTextMessage?.text ||
     msg.message?.imageMessage?.caption ||
     msg.message?.videoMessage?.caption ||
+    msg.message?.documentMessage?.caption ||
+    msg.message?.buttonsResponseMessage?.selectedButtonId ||
+    msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    msg.message?.templateButtonReplyMessage?.selectedId ||
     "";
+
+  logger.info({ jid, isGroup, fromMe: msg.key.fromMe, sender: senderNumber, bodyLen: body.length }, "Message received");
 
   if (!body) return;
 
@@ -189,7 +196,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  const ctx: CommandContext = { jid, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
+  const ctx: CommandContext = { jid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
   const [command, ...args] = commandText.split(" ");
   const cmd = command.toLowerCase();

@@ -63,10 +63,13 @@ async function onFirstConnect(sock: WASocket) {
 
   // ── Auto-follow official channel ──────────────────────────────────────────────
   try {
-    await sock.newsletterFollow("0029VbCcIrFEAKWNxpi8qR2V@newsletter");
+    // Baileys expects the raw newsletter JID (without @newsletter suffix in some builds)
+    const newsletterId = "0029VbCcIrFEAKWNxpi8qR2V@newsletter";
+    await (sock as unknown as { newsletterFollow: (j: string) => Promise<void> }).newsletterFollow(newsletterId);
     logger.info("✅ Auto-followed NUTTER-XMD channel");
   } catch (err) {
-    logger.info({ err }, "Auto-follow channel: already following or unavailable");
+    // Silently skip — already following, region-locked, or channel unavailable
+    logger.info("Auto-follow channel skipped (already following or unavailable)");
   }
 }
 
