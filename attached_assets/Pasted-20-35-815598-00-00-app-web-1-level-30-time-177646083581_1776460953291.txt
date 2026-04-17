@@ -1,0 +1,25 @@
+20:35.815598+00:00 app[web.1]: {"level":30,"time":1776460835815,"pid":4,"hostname":"2be42392-734f-4c49-9c1d-888a53c5b78b","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T21:20:35.818350+00:00 app[web.1]: {"level":30,"time":1776460835815,"pid":4,"hostname":"2be42392-734f-4c49-9c1d-888a53c5b78b","jid":"55427089834127@lid","msg":"↩ fromMe DM echo — skipped"}
+2026-04-17T21:21:36.073306+00:00 app[web.1]: {"level":30,"time":1776460896073,"pid":4,"hostname":"2be42392-734f-4c49-9c1d-888a53c5b78b","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T21:21:36.073942+00:00 app[web.1]: {"level":30,"time":1776460896073,"pid":4,"hostname":"2be42392-734f-4c49-9c1d-888a53c5b78b","stubType":2,"jid":"status@broadcast","msg":"↩ Protocol notification — skipped"}
+2026-04-17T21:21:36.080402+00:00 app[web.1]: Failed to decrypt message with any known session...
+2026-04-17T21:21:36.080497+00:00 app[web.1]: Session error:Error: Bad MAC Error: Bad MAC
+2026-04-17T21:21:36.080498+00:00 app[web.1]:     at Object.verifyMAC (/app/node_modules/libsignal/src/crypto.js:87:15)
+2026-04-17T21:21:36.080498+00:00 app[web.1]:     at SessionCipher.doDecryptWhisperMessage (/app/node_modules/libsignal/src/session_cipher.js:250:16)
+2026-04-17T21:21:36.080498+00:00 app[web.1]:     at async SessionCipher.decryptWithSessions (/app/node_modules/libsignal/src/session_cipher.js:147:29)
+2026-04-17T21:21:36.080499+00:00 app[web.1]:     at async 55427089834127_1.0 [as awaitable] (/app/node_modules/libsignal/src/session_cipher.js:171:28)
+2026-04-17T21:21:36.080501+00:00 app[web.1]:     at async _asyncQueueExecutor (/app/node_modules/libsignal/src/queue_job.js:20:29)
+2026-04-17T21:21:36.080545+00:00 app[web.1]: Session error:Error: Bad MAC Error: Bad MAC
+2026-04-17T21:21:36.080545+00:00 app[web.1]:     at Object.verifyMAC (/app/node_modules/libsignal/src/crypto.js:87:15)
+2026-04-17T21:21:36.080545+00:00 app[web.1]:     at SessionCipher.doDecryptWhisperMessage (/app/node_modules/libsignal/src/session_cipher.js:250:16)
+2026-04-17T21:21:36.080545+00:00 app[web.1]:     at async SessionCipher.decryptWithSessions (/app/node_modules/libsignal/src/session_cipher.js:147:29)
+2026-04-17T21:21:36.080545+00:00 app[web.1]:     at async 55427089834127_1.0 [as awaitable] (/app/node_modules/libsignal/src/session_cipher.js:171:28)
+2026-04-17T21:21:36.080546+00:00 app[web.1]:     at async _asyncQueueExecutor (/app/node_modules/libsignal/src/queue_job.js:20:29)
+2026-04-17T21:21:36.080595+00:00 app[web.1]: Session error:Error: Bad MAC Error: Bad MAC
+2026-04-17T21:21:36.080595+00:00 app[web.1]:     at Object.verifyMAC (/app/node_modules/libsignal/src/crypto.js:87:15)
+2026-04-17T21:21:36.080595+00:00 app[web.1]:     at SessionCipher.doDecryptWhisperMessage (/app/node_modules/libsignal/src/session_cipher.js:250:16)
+2026-04-17T21:21:36.080595+00:00 app[web.1]:     at async SessionCipher.decryptWithSessions (/app/node_modules/libsignal/src/session_cipher.js:147:29)
+2026-04-17T21:21:36.080595+00:00 app[web.1]:     at async 55427089834127_1.0 [as awaitable] (/app/node_modules/libsignal/src/session_cipher.js:171:28)
+2026-04-17T21:21:36.080595+00:00 app[web.1]:     at async _asyncQueueExecutor (/app/node_modules/libsignal/src/queue_job.js:20:29)
+2026-04-17T21:21:36.334072+00:00 app[web.1]: {"level":30,"time":1776460896333,"pid":4,"hostname":"2be42392-734f-4c49-9c1d-888a53c5b78b","type":"notify","count":1,"msg":"📨 messages.upsert fired"}
+2026-04-17T21:21:36.339425+00:00 app[web.1]: {"level":30,"time":1776460896334,"pid":4,"hostname":"2be42392-734f-4c49-9c1d-888a53c5b78b","jid":"230022023483514@lid","msg":"↩ fromMe DM echo — skipped"}

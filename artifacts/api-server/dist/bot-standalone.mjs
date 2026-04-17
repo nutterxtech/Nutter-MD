@@ -6509,10 +6509,16 @@ async function connectBot(sessionAuth) {
       setTimeout(() => void connectBot(sessionAuth), RECONNECT_DELAY_MS);
     }
   });
-  function dispatchAsync(label, fn) {
-    setImmediate(() => {
-      fn().catch((err) => logger.error({ err, label }, "Error in async message handler"));
+  const jidQueues = /* @__PURE__ */ new Map();
+  function enqueueForJid(jid, label, fn) {
+    const prev = jidQueues.get(jid) ?? Promise.resolve();
+    const next = prev.then(() => fn()).catch((err) => logger.error({ err, label, jid }, "Queue handler error")).finally(() => {
+      if (jidQueues.get(jid) === next) jidQueues.delete(jid);
     });
+    jidQueues.set(jid, next);
+  }
+  function fireAsync(label, fn) {
+    Promise.resolve().then(() => fn()).catch((err) => logger.error({ err, label }, "Async handler error"));
   }
   sock.ev.on("messages.upsert", ({ messages, type }) => {
     logger.info({ type, count: messages.length }, "\u{1F4E8} messages.upsert fired");
@@ -6553,7 +6559,7 @@ async function connectBot(sessionAuth) {
       const jid = msg.key.remoteJid;
       logger.info({ jid, jidType: jid.split("@")[1] ?? "unknown", fromMe: msg.key.fromMe }, "\u27A1\uFE0F Dispatching message");
       if (jid === "status@broadcast") {
-        dispatchAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
+        fireAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
         continue;
       }
       const proto = msg.message.protocolMessage;
@@ -6561,7 +6567,7 @@ async function connectBot(sessionAuth) {
         const deletedMsg = popCachedMessage(proto.key.id);
         if (deletedMsg && ownerNumber) {
           const capturedDeleted = deletedMsg;
-          dispatchAsync("antidelete", async () => {
+          fireAsync("antidelete", async () => {
             const srcJid = capturedDeleted.key.remoteJid || "";
             const isGroup = srcJid.endsWith("@g.us");
             const gs = isGroup ? getGroupSettings(srcJid) : null;
@@ -6593,7 +6599,7 @@ async function connectBot(sessionAuth) {
         continue;
       }
       cacheMessage(msg);
-      dispatchAsync("handleMessage", () => handleMessage(sock, msg));
+      enqueueForJid(jid, "handleMessage", () => handleMessage(sock, msg));
     }
   });
   sock.ev.on("group-participants.update", async (update) => {

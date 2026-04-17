@@ -244,23 +244,49 @@ async function connectBot(sessionAuth: {
     }
   });
 
-  // ── Messages ─────────────────────────────────────────────────────────────────
-  // ── Non-blocking message dispatch helper ─────────────────────────────────────
-  // We never `await` inside the messages.upsert loop itself.  Instead, all async
-  // work is deferred with setImmediate so the Baileys event loop (and other
-  // sock.ev handlers) can keep running at full speed between messages.
-  // Errors are caught per-message so one bad message never stalls the rest.
-  function dispatchAsync(label: string, fn: () => Promise<void>) {
-    setImmediate(() => {
-      fn().catch((err) => logger.error({ err, label }, "Error in async message handler"));
-    });
+  // ── Per-JID serial message queue ─────────────────────────────────────────────
+  //
+  // Architecture:
+  //   Each JID (sender) gets its own promise chain. Messages from the SAME
+  //   sender are processed one-at-a-time — the next command only starts after
+  //   the previous one fully completes (response sent). Messages from DIFFERENT
+  //   senders run in parallel, so one slow command never delays another sender.
+  //
+  // Why this is better than setImmediate:
+  //   • Back-pressure built-in: if one user spams 50 commands, they queue up
+  //     behind each other instead of spawning 50 concurrent async handlers.
+  //   • No event loop saturation: promise chains yield naturally at every
+  //     await point (sock.sendMessage, groupMetadata, etc.).
+  //   • Automatic cleanup: the queue entry is deleted once the tail completes,
+  //     so the Map never grows unbounded.
+  //   • Errors are isolated per-message: one failure skips that job and the
+  //     next queued message for that JID still runs.
+  //
+  const jidQueues = new Map<string, Promise<void>>();
+
+  function enqueueForJid(jid: string, label: string, fn: () => Promise<void>) {
+    const prev = jidQueues.get(jid) ?? Promise.resolve();
+    const next = prev
+      .then(() => fn())
+      .catch((err) => logger.error({ err, label, jid }, "Queue handler error"))
+      .finally(() => {
+        if (jidQueues.get(jid) === next) jidQueues.delete(jid);
+      });
+    jidQueues.set(jid, next);
+  }
+
+  // Fire-and-forget for events that don't need per-sender ordering
+  // (status reactions, antidelete forwards). Uses Promise micro-queue,
+  // not setImmediate, so it starts in the same event-loop turn.
+  function fireAsync(label: string, fn: () => Promise<void>) {
+    Promise.resolve()
+      .then(() => fn())
+      .catch((err) => logger.error({ err, label }, "Async handler error"));
   }
 
   sock.ev.on("messages.upsert", ({ messages, type }) => {
-    // Log EVERY upsert event regardless of type so we can see what's arriving
     logger.info({ type, count: messages.length }, "📨 messages.upsert fired");
 
-    // Accept both "notify" (real-time incoming) and "append" (some linked-device configs).
     if (type !== "notify" && type !== "append") {
       logger.info({ type }, "↩ Skipped — type is neither notify nor append");
       return;
@@ -270,7 +296,7 @@ async function connectBot(sessionAuth: {
     const botNumber   = (sock.user?.id || "").split(":")[0].split("@")[0];
 
     for (const msg of messages) {
-      // ── Synchronous filtering (no awaits — keeps the loop tight) ─────────
+      // ── Synchronous filtering — zero awaits, keeps the loop tight ────────
       const remoteJid    = msg.key?.remoteJid || "";
       const remoteNumber = remoteJid.split(":")[0].split("@")[0];
 
@@ -305,23 +331,22 @@ async function connectBot(sessionAuth: {
       const jid = msg.key.remoteJid!;
       logger.info({ jid, jidType: jid.split("@")[1] ?? "unknown", fromMe: msg.key.fromMe }, "➡️ Dispatching message");
 
-      // Status broadcasts ────────────────────────────────────────────────────
+      // ── Status broadcasts — fire-and-forget (no per-sender ordering needed)
       if (jid === "status@broadcast") {
-        dispatchAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
+        fireAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
         continue;
       }
 
-      // Antidelete: detect REVOKE protocol messages ──────────────────────────
-      // type 0 = "delete for everyone"
+      // ── Antidelete: detect REVOKE protocol messages (type 0 = delete for everyone)
       const proto = msg.message!.protocolMessage;
       if (proto && proto.type === 0 && proto.key?.id) {
-        // popCachedMessage is sync — do it now so we don't race with another
-        // revoke that might arrive a few ms later in the same event tick.
+        // popCachedMessage is sync — must run in the loop to avoid racing with
+        // a revoke that arrives in the same batch a few ms later.
         const deletedMsg = popCachedMessage(proto.key.id);
 
         if (deletedMsg && ownerNumber) {
-          const capturedDeleted = deletedMsg; // capture for async closure
-          dispatchAsync("antidelete", async () => {
+          const capturedDeleted = deletedMsg;
+          fireAsync("antidelete", async () => {
             const srcJid  = capturedDeleted.key.remoteJid || "";
             const isGroup = srcJid.endsWith("@g.us");
             const gs      = isGroup ? getGroupSettings(srcJid) : null;
@@ -351,11 +376,11 @@ async function connectBot(sessionAuth: {
         continue;
       }
 
-      // Cache for future antidelete lookups (sync — must happen before next msg)
+      // ── Cache for antidelete (sync — must happen before dispatching) ──────
       cacheMessage(msg);
 
-      // ── Command / feature handler — fully non-blocking ────────────────────
-      dispatchAsync("handleMessage", () => handleMessage(sock, msg));
+      // ── Command handler — enqueued per-JID for back-pressure ─────────────
+      enqueueForJid(jid, "handleMessage", () => handleMessage(sock, msg));
     }
   });
 
