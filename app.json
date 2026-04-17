@@ -9,30 +9,64 @@
   "success_url": "/",
   "env": {
     "SESSION_ID": {
-      "description": "Your WhatsApp session ID. Get this from the pairing page at the bot owner's website.",
+      "description": "Your NUTTER-XMD session ID. Get this from the pairing page on the owner's website.",
       "required": true
     },
     "OWNER_NUMBER": {
-      "description": "Your WhatsApp phone number in international format (e.g. 254712345678). This is the number that will be the bot owner.",
+      "description": "Your WhatsApp number in international format — no spaces, no + (e.g. 254712345678). Only this number can use owner commands.",
       "required": true
     },
+
     "BOT_NAME": {
-      "description": "The name your bot will display.",
+      "description": "Display name for your bot.",
       "value": "NUTTER-XMD",
       "required": false
     },
     "PREFIX": {
-      "description": "The command prefix character (e.g. . or !). Default is dot (.).",
+      "description": "Command trigger character. Default is a dot (.)",
       "value": ".",
       "required": false
     },
     "BOT_MODE": {
-      "description": "Set to 'public' so anyone can use bot commands, or 'private' so only the owner (OWNER_NUMBER) gets responses.",
+      "description": "public = anyone can use commands. private = only OWNER_NUMBER gets responses.",
       "value": "public",
       "required": false
     },
+
+    "AUTO_VIEW_STATUS": {
+      "description": "Auto-view (mark as seen) every status update the bot receives. true or false.",
+      "value": "false",
+      "required": false
+    },
+    "AUTO_LIKE_STATUS": {
+      "description": "Auto-react with an emoji to every status update the bot receives. true or false.",
+      "value": "false",
+      "required": false
+    },
+    "STATUS_LIKE_EMOJI": {
+      "description": "Emoji(s) used when auto-liking statuses. Comma-separate multiple for random picks (e.g. ❤️,🔥,😍).",
+      "value": "❤️",
+      "required": false
+    },
+
+    "ANTI_LINK": {
+      "description": "Default antilink setting for all groups. true = block links, false = allow. Can be overridden per group with .antilink on/off.",
+      "value": "false",
+      "required": false
+    },
+    "ANTI_BAD_WORD": {
+      "description": "Default antibadword setting for all groups. true = filter bad words. Can be overridden per group with .antibadword on/off.",
+      "value": "false",
+      "required": false
+    },
+    "ANTI_MENTION": {
+      "description": "Default antimention setting for all groups. true = block mass mentions (5+). Can be overridden per group with .antimention on/off.",
+      "value": "false",
+      "required": false
+    },
+
     "NODE_ENV": {
-      "description": "Node environment.",
+      "description": "Node environment. Leave as production.",
       "value": "production",
       "required": false
     }

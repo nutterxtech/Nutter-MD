@@ -200,7 +200,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     // ── Bot status settings (owner only) ─────────────────────────────────────
     case "autoviewstatus":
     case "autoview": {
-      if (!isOwner) { await sock.sendMessage(jid, { text: "Only the owner can change this." }); return; }
+      if (!isOwner) { await sock.sendMessage(jid, { text: "🚫 Only owner command" }); return; }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
         await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}\nUsage: ${prefix}autoviewstatus on/off` });
@@ -214,7 +214,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
 
     case "autolikestatus":
     case "autolike": {
-      if (!isOwner) { await sock.sendMessage(jid, { text: "Only the owner can change this." }); return; }
+      if (!isOwner) { await sock.sendMessage(jid, { text: "🚫 Only owner command" }); return; }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
         await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}\nUsage: ${prefix}autolikestatus on/off` });
@@ -227,7 +227,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     }
 
     case "statusemoji": {
-      if (!isOwner) { await sock.sendMessage(jid, { text: "Only the owner can change this." }); return; }
+      if (!isOwner) { await sock.sendMessage(jid, { text: "🚫 Only owner command" }); return; }
       const emoji = args.join(" ").trim();
       if (!emoji) {
         await sock.sendMessage(jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}\nUsage: ${prefix}statusemoji ❤️,🔥,😍` });
@@ -258,7 +258,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     case "autoreply":     return handleAutoReply(sock, msg, ctx, args);
 
     default:
-      await sock.sendMessage(jid, { text: `Unknown command: ${prefix}${cmd}\nUse ${prefix}menu for all commands.` });
+      return;
   }
 }
 

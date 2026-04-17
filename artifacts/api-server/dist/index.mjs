@@ -33021,6 +33021,16 @@ var require_lib4 = __commonJS({
 });
 
 // src/bot/store.ts
+var store_exports = {};
+__export(store_exports, {
+  ensureGroupSettings: () => ensureGroupSettings,
+  getBotSettings: () => getBotSettings,
+  getGroupSettings: () => getGroupSettings,
+  getUserSettings: () => getUserSettings,
+  setUserBanned: () => setUserBanned,
+  updateBotSettings: () => updateBotSettings,
+  updateGroupSettings: () => updateGroupSettings
+});
 function getGroupSettings(groupId) {
   return groupStore.get(groupId) ?? null;
 }
@@ -33028,9 +33038,9 @@ function ensureGroupSettings(groupId) {
   if (!groupStore.has(groupId)) {
     groupStore.set(groupId, {
       groupId,
-      antilink: false,
-      antibadword: false,
-      antimention: false,
+      antilink: process.env["ANTI_LINK"] === "true",
+      antibadword: process.env["ANTI_BAD_WORD"] === "true",
+      antimention: process.env["ANTI_MENTION"] === "true",
       mute: false,
       customPrefix: null,
       welcomeEnabled: false,
@@ -33063,9 +33073,9 @@ var init_store = __esm({
     groupStore = /* @__PURE__ */ new Map();
     userStore = /* @__PURE__ */ new Map();
     botSettings = {
-      autoViewStatus: false,
-      autoLikeStatus: false,
-      statusLikeEmoji: "\u2764\uFE0F"
+      autoViewStatus: process.env["AUTO_VIEW_STATUS"] === "true",
+      autoLikeStatus: process.env["AUTO_LIKE_STATUS"] === "true",
+      statusLikeEmoji: process.env["STATUS_LIKE_EMOJI"] || "\u2764\uFE0F"
     };
   }
 });
@@ -33154,8 +33164,22 @@ END:VCARD`, displayName: "NUTTER-XMD Owner" }]
   });
 }
 async function handleSettings(sock, _msg, ctx, prefix) {
+  const { getBotSettings: getBotSettings2 } = await Promise.resolve().then(() => (init_store(), store_exports));
   const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
   const ownerNumber = process.env["OWNER_NUMBER"] || "Not set";
+  const mode = (process.env["BOT_MODE"] || "public").toLowerCase();
+  const bs = getBotSettings2();
+  const botInfo = `*${botName} Settings*
+
+*General*
+Prefix: ${prefix}
+Mode: ${mode}
+Owner: ${ownerNumber}
+
+*Status*
+Auto-view status: ${bs.autoViewStatus ? "ON" : "OFF"}
+Auto-like status: ${bs.autoLikeStatus ? "ON" : "OFF"}
+Status emoji: ${bs.statusLikeEmoji}`;
   let groupInfo = "";
   if (ctx.groupSettings) {
     const s = ctx.groupSettings;
@@ -33172,11 +33196,7 @@ Custom Prefix: ${s.customPrefix || prefix}
 Welcome Messages: ${s.welcomeEnabled ? "ON" : "OFF"}
 Welcome Text: ${s.welcomeMessage || "Default"}`;
   }
-  const text = `*${botName} Settings*
-
-Prefix: ${prefix}
-Owner: ${ownerNumber}${groupInfo}`;
-  await sock.sendMessage(ctx.jid, { text });
+  await sock.sendMessage(ctx.jid, { text: botInfo + groupInfo });
 }
 async function downloadToBuffer(mediaMsg, type) {
   const { downloadContentFromMessage } = await import("@whiskeysockets/baileys");
@@ -33263,7 +33283,7 @@ async function handleSticker(sock, msg, ctx) {
 }
 async function handleRestart(sock, _msg, ctx) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only the bot owner can restart." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Only owner command" });
     return;
   }
   await sock.sendMessage(ctx.jid, { text: "Restarting..." });
@@ -33283,7 +33303,7 @@ async function handleKick(sock, msg, ctx) {
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can kick members." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -33305,7 +33325,7 @@ async function handleAdd(sock, _msg, ctx, args) {
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can add members." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const number = args[0]?.replace(/[^0-9]/g, "");
@@ -33324,11 +33344,11 @@ async function handleAdd(sock, _msg, ctx, args) {
 }
 async function handlePromote(sock, msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use this command." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can promote members." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -33341,11 +33361,11 @@ async function handlePromote(sock, msg, ctx) {
 }
 async function handleDemote(sock, msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use this command." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can demote members." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -33358,7 +33378,7 @@ async function handleDemote(sock, msg, ctx) {
 }
 async function handleAntilink(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -33372,7 +33392,7 @@ async function handleAntilink(sock, _msg, ctx, args) {
 }
 async function handleAntibadword(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -33386,7 +33406,7 @@ async function handleAntibadword(sock, _msg, ctx, args) {
 }
 async function handleAntimention(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -33400,7 +33420,7 @@ async function handleAntimention(sock, _msg, ctx, args) {
 }
 async function handleBan(sock, msg, ctx) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Only admins can ban users." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -33415,7 +33435,7 @@ async function handleBan(sock, msg, ctx) {
 }
 async function handleUnban(sock, msg, ctx) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Only admins can unban users." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -33434,7 +33454,7 @@ async function handleSetPrefix(sock, _msg, ctx, args) {
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can change the prefix." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const newPrefix = args[0]?.trim();
@@ -33447,11 +33467,11 @@ async function handleSetPrefix(sock, _msg, ctx, args) {
 }
 async function handleTagAll(sock, msg, ctx, args) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use tagall." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges for tagall." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use tagall." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   try {
@@ -33500,11 +33520,11 @@ async function handleGroupInfo(sock, _msg, ctx) {
 }
 async function handleMute(sock, _msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to mute the group." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges to mute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can mute the group." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   try {
@@ -33518,11 +33538,11 @@ async function handleMute(sock, _msg, ctx) {
 }
 async function handleUnmute(sock, _msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to unmute the group." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges to unmute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can unmute the group." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   try {
@@ -33540,7 +33560,7 @@ async function handleWelcome(sock, _msg, ctx, args) {
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can configure welcome messages." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -33562,7 +33582,7 @@ async function handleSetWelcome(sock, _msg, ctx, args) {
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can set the welcome message." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const message = args.join(" ").trim();
@@ -33581,7 +33601,7 @@ async function handleAutoReply(sock, _msg, ctx, args) {
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can manage auto-replies." });
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const subCmd = args[0]?.toLowerCase();
@@ -33781,7 +33801,7 @@ async function handleMessage(sock, msg) {
     case "autoviewstatus":
     case "autoview": {
       if (!isOwner) {
-        await sock.sendMessage(jid, { text: "Only the owner can change this." });
+        await sock.sendMessage(jid, { text: "\u{1F6AB} Only owner command" });
         return;
       }
       const val = args[0]?.toLowerCase();
@@ -33798,7 +33818,7 @@ Usage: ${prefix}autoviewstatus on/off` });
     case "autolikestatus":
     case "autolike": {
       if (!isOwner) {
-        await sock.sendMessage(jid, { text: "Only the owner can change this." });
+        await sock.sendMessage(jid, { text: "\u{1F6AB} Only owner command" });
         return;
       }
       const val = args[0]?.toLowerCase();
@@ -33814,7 +33834,7 @@ Usage: ${prefix}autolikestatus on/off` });
     }
     case "statusemoji": {
       if (!isOwner) {
-        await sock.sendMessage(jid, { text: "Only the owner can change this." });
+        await sock.sendMessage(jid, { text: "\u{1F6AB} Only owner command" });
         return;
       }
       const emoji = args.join(" ").trim();
@@ -33863,8 +33883,7 @@ Usage: ${prefix}statusemoji \u2764\uFE0F,\u{1F525},\u{1F60D}` });
     case "autoreply":
       return handleAutoReply(sock, msg, ctx, args);
     default:
-      await sock.sendMessage(jid, { text: `Unknown command: ${prefix}${cmd}
-Use ${prefix}menu for all commands.` });
+      return;
   }
 }
 async function handleGroupParticipantsUpdate(sock, update) {

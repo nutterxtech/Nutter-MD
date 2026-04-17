@@ -9,7 +9,7 @@ export async function handleKick(sock: WASocket, msg: proto.IWebMessageInfo, ctx
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can kick members." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -32,7 +32,7 @@ export async function handleAdd(sock: WASocket, _msg: proto.IWebMessageInfo, ctx
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can add members." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const number = args[0]?.replace(/[^0-9]/g, "");
@@ -52,11 +52,11 @@ export async function handleAdd(sock: WASocket, _msg: proto.IWebMessageInfo, ctx
 
 export async function handlePromote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use this command." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can promote members." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -70,11 +70,11 @@ export async function handlePromote(sock: WASocket, msg: proto.IWebMessageInfo, 
 
 export async function handleDemote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use this command." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can demote members." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -88,7 +88,7 @@ export async function handleDemote(sock: WASocket, msg: proto.IWebMessageInfo, c
 
 export async function handleAntilink(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -103,7 +103,7 @@ export async function handleAntilink(sock: WASocket, _msg: proto.IWebMessageInfo
 
 export async function handleAntibadword(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -118,7 +118,7 @@ export async function handleAntibadword(sock: WASocket, _msg: proto.IWebMessageI
 
 export async function handleAntimention(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use this." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -133,7 +133,7 @@ export async function handleAntimention(sock: WASocket, _msg: proto.IWebMessageI
 
 export async function handleBan(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Only admins can ban users." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -149,7 +149,7 @@ export async function handleBan(sock: WASocket, msg: proto.IWebMessageInfo, ctx:
 
 export async function handleUnban(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Only admins can unban users." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -169,7 +169,7 @@ export async function handleSetPrefix(sock: WASocket, _msg: proto.IWebMessageInf
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can change the prefix." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const newPrefix = args[0]?.trim();
@@ -183,11 +183,11 @@ export async function handleSetPrefix(sock: WASocket, _msg: proto.IWebMessageInf
 
 export async function handleTagAll(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to use tagall." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges for tagall." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can use tagall." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   try {
@@ -241,11 +241,11 @@ export async function handleGroupInfo(sock: WASocket, _msg: proto.IWebMessageInf
 
 export async function handleMute(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to mute the group." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges to mute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can mute the group." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   try {
@@ -260,11 +260,11 @@ export async function handleMute(sock: WASocket, _msg: proto.IWebMessageInfo, ct
 
 export async function handleUnmute(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "Bot must be admin to unmute the group." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges to unmute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can unmute the group." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   try {
@@ -283,7 +283,7 @@ export async function handleWelcome(sock: WASocket, _msg: proto.IWebMessageInfo,
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can configure welcome messages." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
@@ -304,7 +304,7 @@ export async function handleSetWelcome(sock: WASocket, _msg: proto.IWebMessageIn
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can set the welcome message." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const message = args.join(" ").trim();
@@ -322,7 +322,7 @@ export async function handleAutoReply(sock: WASocket, _msg: proto.IWebMessageInf
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only group admins can manage auto-replies." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
 

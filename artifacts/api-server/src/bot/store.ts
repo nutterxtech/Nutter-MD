@@ -32,9 +32,9 @@ export function ensureGroupSettings(groupId: string): GroupSettings {
   if (!groupStore.has(groupId)) {
     groupStore.set(groupId, {
       groupId,
-      antilink: false,
-      antibadword: false,
-      antimention: false,
+      antilink:    process.env["ANTI_LINK"]     === "true",
+      antibadword: process.env["ANTI_BAD_WORD"] === "true",
+      antimention: process.env["ANTI_MENTION"]  === "true",
       mute: false,
       customPrefix: null,
       welcomeEnabled: false,
@@ -61,11 +61,11 @@ export function setUserBanned(userId: string, isBanned: boolean): void {
   userStore.set(userId, { userId, isBanned });
 }
 
-// ── Bot-level settings ─────────────────────────────────────────────────────────
+// ── Bot-level settings (initialised from env vars = app.json defaults) ────────
 const botSettings: BotSettings = {
-  autoViewStatus: false,
-  autoLikeStatus: false,
-  statusLikeEmoji: "❤️",
+  autoViewStatus: process.env["AUTO_VIEW_STATUS"] === "true",
+  autoLikeStatus: process.env["AUTO_LIKE_STATUS"] === "true",
+  statusLikeEmoji: process.env["STATUS_LIKE_EMOJI"] || "❤️",
 };
 
 export function getBotSettings(): BotSettings {

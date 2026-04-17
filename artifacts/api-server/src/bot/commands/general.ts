@@ -75,8 +75,22 @@ export async function handleOwner(sock: WASocket, _msg: proto.IWebMessageInfo, c
 }
 
 export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
+  const { getBotSettings } = await import("../store");
   const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
   const ownerNumber = process.env["OWNER_NUMBER"] || "Not set";
+  const mode = (process.env["BOT_MODE"] || "public").toLowerCase();
+  const bs = getBotSettings();
+
+  const botInfo =
+    `*${botName} Settings*\n\n` +
+    `*General*\n` +
+    `Prefix: ${prefix}\n` +
+    `Mode: ${mode}\n` +
+    `Owner: ${ownerNumber}\n\n` +
+    `*Status*\n` +
+    `Auto-view status: ${bs.autoViewStatus ? "ON" : "OFF"}\n` +
+    `Auto-like status: ${bs.autoLikeStatus ? "ON" : "OFF"}\n` +
+    `Status emoji: ${bs.statusLikeEmoji}`;
 
   let groupInfo = "";
   if (ctx.groupSettings) {
@@ -93,8 +107,7 @@ export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo
       `Welcome Text: ${s.welcomeMessage || "Default"}`;
   }
 
-  const text = `*${botName} Settings*\n\nPrefix: ${prefix}\nOwner: ${ownerNumber}${groupInfo}`;
-  await sock.sendMessage(ctx.jid, { text });
+  await sock.sendMessage(ctx.jid, { text: botInfo + groupInfo });
 }
 
 async function downloadToBuffer(mediaMsg: object, type: "image" | "video"): Promise<Buffer> {
@@ -195,7 +208,7 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
 
 export async function handleRestart(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "Only the bot owner can restart." });
+    await sock.sendMessage(ctx.jid, { text: "🚫 Only owner command" });
     return;
   }
   await sock.sendMessage(ctx.jid, { text: "Restarting..." });
