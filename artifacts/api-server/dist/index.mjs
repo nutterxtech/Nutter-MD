@@ -58456,7 +58456,7 @@ var init_schema2 = __esm({
 });
 
 // ../../lib/db/src/index.ts
-var Pool3, pool, db;
+var Pool3, databaseUrl, pool, db;
 var init_src = __esm({
   "../../lib/db/src/index.ts"() {
     "use strict";
@@ -58465,12 +58465,16 @@ var init_src = __esm({
     init_schema2();
     init_schema2();
     ({ Pool: Pool3 } = esm_default);
-    if (!process.env.DATABASE_URL) {
-      throw new Error(
-        "DATABASE_URL must be set. Did you forget to provision a database?"
+    databaseUrl = process.env["DATABASE_URL"];
+    if (!databaseUrl) {
+      console.warn(
+        "[db] DATABASE_URL not set \u2014 persistent storage is disabled. Bot will run normally; group/user settings commands will be unavailable."
       );
     }
-    pool = new Pool3({ connectionString: process.env.DATABASE_URL });
+    pool = new Pool3({
+      connectionString: databaseUrl ?? "postgresql://127.0.0.1:1/noop?connect_timeout=1",
+      connectionTimeoutMillis: 3e3
+    });
     db = drizzle(pool, { schema: schema_exports });
   }
 });

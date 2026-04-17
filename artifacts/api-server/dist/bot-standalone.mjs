@@ -28575,12 +28575,16 @@ var insertUserSettingsSchema = createInsertSchema(userSettingsTable).omit({ upda
 
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?"
+var databaseUrl = process.env["DATABASE_URL"];
+if (!databaseUrl) {
+  console.warn(
+    "[db] DATABASE_URL not set \u2014 persistent storage is disabled. Bot will run normally; group/user settings commands will be unavailable."
   );
 }
-var pool = new Pool3({ connectionString: process.env.DATABASE_URL });
+var pool = new Pool3({
+  connectionString: databaseUrl ?? "postgresql://127.0.0.1:1/noop?connect_timeout=1",
+  connectionTimeoutMillis: 3e3
+});
 var db = drizzle(pool, { schema: schema_exports });
 
 // src/bot/commands/general.ts

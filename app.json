@@ -7,12 +7,6 @@
   "logo": "https://raw.githubusercontent.com/nutterxtech/NUTTER-XMD/main/assets/logo.png",
   "stack": "container",
   "success_url": "/",
-  "addons": [
-    {
-      "plan": "heroku-postgresql:essential-0",
-      "as": "DATABASE"
-    }
-  ],
   "env": {
     "SESSION_ID": {
       "description": "Your WhatsApp session ID. Get this from the pairing page at the bot owner's website.",
