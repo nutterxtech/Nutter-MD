@@ -1,3 +1,4 @@
+import pino from "pino";
 import { Boom } from "@hapi/boom";
 import { logger } from "../lib/logger";
 import { loadSessionFromEnv } from "./session";
@@ -7,10 +8,12 @@ const RECONNECT_DELAY_MS = 5000;
 let reconnectAttempts = 0;
 const MAX_RECONNECTS = 10;
 
+const silentLogger = pino({ level: "silent" });
+
 export async function startBot() {
   const sessionAuth = await loadSessionFromEnv();
   if (!sessionAuth) {
-    logger.info("No SESSION_ID provided — bot engine not started. Set SESSION_ID env var to start the bot.");
+    logger.info("No SESSION_ID provided — bot engine not started.");
     return;
   }
 
@@ -32,6 +35,7 @@ async function connectBot(sessionAuth: {
     printQRInTerminal: false,
     browser: Browsers.ubuntu("Chrome"),
     msgRetryCounterCache,
+    logger: silentLogger,
   });
 
   sock.ev.on("creds.update", sessionAuth.saveCreds);
@@ -41,7 +45,7 @@ async function connectBot(sessionAuth: {
 
     if (connection === "open") {
       reconnectAttempts = 0;
-      logger.info("Bot connected to WhatsApp");
+      logger.info("✅ NUTTER-XMD connected to WhatsApp");
     }
 
     if (connection === "close") {
@@ -49,17 +53,17 @@ async function connectBot(sessionAuth: {
       const { DisconnectReason: DR } = await import("@whiskeysockets/baileys");
 
       if (reason === DR.loggedOut) {
-        logger.error("Bot was logged out. Please generate a new SESSION_ID via the pairing page.");
+        logger.error("❌ Bot logged out. Generate a new SESSION_ID from the pairing page.");
         return;
       }
 
       if (reconnectAttempts >= MAX_RECONNECTS) {
-        logger.error({ reconnectAttempts }, "Max reconnect attempts reached. Exiting.");
+        logger.error("❌ Max reconnect attempts reached. Exiting.");
         process.exit(1);
       }
 
       reconnectAttempts++;
-      logger.warn({ reason, attempt: reconnectAttempts }, `Connection closed, reconnecting in ${RECONNECT_DELAY_MS}ms...`);
+      logger.warn(`🔄 Reconnecting... (attempt ${reconnectAttempts}/${MAX_RECONNECTS})`);
       setTimeout(() => connectBot(sessionAuth), RECONNECT_DELAY_MS);
     }
   });
@@ -71,7 +75,7 @@ async function connectBot(sessionAuth: {
       try {
         await handleMessage(sock, msg);
       } catch (err) {
-        logger.error({ err, msgKey: msg.key }, "Error handling message");
+        logger.error({ err }, "Error handling message");
       }
     }
   });
@@ -80,7 +84,7 @@ async function connectBot(sessionAuth: {
     try {
       await handleGroupParticipantsUpdate(sock, update);
     } catch (err) {
-      logger.error({ err }, "Error handling group-participants.update");
+      logger.error({ err }, "Error handling group update");
     }
   });
 

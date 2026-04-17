@@ -28023,7 +28023,7 @@ var require_pino = __commonJS({
     };
     var normalize = createArgsNormalizer(defaultOptions);
     var serializers = Object.assign(/* @__PURE__ */ Object.create(null), stdSerializers);
-    function pino2(...args) {
+    function pino3(...args) {
       const instance = {};
       const { opts, stream } = normalize(instance, caller(), ...args);
       if (opts.level && typeof opts.level === "string" && DEFAULT_LEVELS[opts.level.toLowerCase()] !== void 0) opts.level = opts.level.toLowerCase();
@@ -28125,7 +28125,7 @@ var require_pino = __commonJS({
       instance[setLevelSym](level);
       return instance;
     }
-    module.exports = pino2;
+    module.exports = pino3;
     module.exports.destination = (dest = process.stdout.fd) => {
       if (typeof dest === "object") {
         dest.dest = normalizeDestFileDescriptor(dest.dest || process.stdout.fd);
@@ -28141,8 +28141,8 @@ var require_pino = __commonJS({
     module.exports.stdTimeFunctions = Object.assign({}, time);
     module.exports.symbols = symbols;
     module.exports.version = version;
-    module.exports.default = pino2;
-    module.exports.pino = pino2;
+    module.exports.default = pino3;
+    module.exports.pino = pino3;
   }
 });
 
@@ -28174,7 +28174,7 @@ var require_get_caller_file = __commonJS({
 var require_logger = __commonJS({
   "../../node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js"(exports, module) {
     "use strict";
-    var { pino: pino2, symbols: { stringifySym, chindingsSym } } = require_pino();
+    var { pino: pino3, symbols: { stringifySym, chindingsSym } } = require_pino();
     var serializers = require_pino_std_serializers();
     var getCallerFile = require_get_caller_file();
     var startTime = /* @__PURE__ */ Symbol("startTime");
@@ -28352,7 +28352,7 @@ var require_logger = __commonJS({
         if (opts.transport && !opts.transport.caller) {
           opts.transport.caller = getCallerFile();
         }
-        logger2 = pino2(opts, stream);
+        logger2 = pino3(opts, stream);
       }
       return logger2;
     }
@@ -34475,7 +34475,7 @@ __export(botEngine_exports, {
 async function startBot() {
   const sessionAuth = await loadSessionFromEnv();
   if (!sessionAuth) {
-    logger.info("No SESSION_ID provided \u2014 bot engine not started. Set SESSION_ID env var to start the bot.");
+    logger.info("No SESSION_ID provided \u2014 bot engine not started.");
     return;
   }
   logger.info("Starting NUTTER-XMD bot engine...");
@@ -34489,28 +34489,29 @@ async function connectBot(sessionAuth) {
     auth: sessionAuth.state,
     printQRInTerminal: false,
     browser: Browsers.ubuntu("Chrome"),
-    msgRetryCounterCache
+    msgRetryCounterCache,
+    logger: silentLogger
   });
   sock.ev.on("creds.update", sessionAuth.saveCreds);
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
     if (connection === "open") {
       reconnectAttempts = 0;
-      logger.info("Bot connected to WhatsApp");
+      logger.info("\u2705 NUTTER-XMD connected to WhatsApp");
     }
     if (connection === "close") {
       const reason = lastDisconnect?.error?.output?.statusCode;
       const { DisconnectReason: DR } = await import("@whiskeysockets/baileys");
       if (reason === DR.loggedOut) {
-        logger.error("Bot was logged out. Please generate a new SESSION_ID via the pairing page.");
+        logger.error("\u274C Bot logged out. Generate a new SESSION_ID from the pairing page.");
         return;
       }
       if (reconnectAttempts >= MAX_RECONNECTS) {
-        logger.error({ reconnectAttempts }, "Max reconnect attempts reached. Exiting.");
+        logger.error("\u274C Max reconnect attempts reached. Exiting.");
         process.exit(1);
       }
       reconnectAttempts++;
-      logger.warn({ reason, attempt: reconnectAttempts }, `Connection closed, reconnecting in ${RECONNECT_DELAY_MS}ms...`);
+      logger.warn(`\u{1F504} Reconnecting... (attempt ${reconnectAttempts}/${MAX_RECONNECTS})`);
       setTimeout(() => connectBot(sessionAuth), RECONNECT_DELAY_MS);
     }
   });
@@ -34521,7 +34522,7 @@ async function connectBot(sessionAuth) {
       try {
         await handleMessage(sock, msg);
       } catch (err) {
-        logger.error({ err, msgKey: msg.key }, "Error handling message");
+        logger.error({ err }, "Error handling message");
       }
     }
   });
@@ -34529,21 +34530,23 @@ async function connectBot(sessionAuth) {
     try {
       await handleGroupParticipantsUpdate(sock, update);
     } catch (err) {
-      logger.error({ err }, "Error handling group-participants.update");
+      logger.error({ err }, "Error handling group update");
     }
   });
   return sock;
 }
-var RECONNECT_DELAY_MS, reconnectAttempts, MAX_RECONNECTS;
+var import_pino2, RECONNECT_DELAY_MS, reconnectAttempts, MAX_RECONNECTS, silentLogger;
 var init_botEngine = __esm({
   "src/bot/botEngine.ts"() {
     "use strict";
+    import_pino2 = __toESM(require_pino(), 1);
     init_logger();
     init_session();
     init_handler();
     RECONNECT_DELAY_MS = 5e3;
     reconnectAttempts = 0;
     MAX_RECONNECTS = 10;
+    silentLogger = (0, import_pino2.default)({ level: "silent" });
   }
 });
 

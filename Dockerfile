@@ -1,6 +1,8 @@
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     git \
     python3 \
     make \
@@ -10,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-RUN npm install @whiskeysockets/baileys@7.0.0-rc.9 thread-stream@3.1.0
+RUN npm install --loglevel=error @whiskeysockets/baileys@7.0.0-rc.9 thread-stream@3.1.0
 
 COPY artifacts/api-server/dist ./artifacts/api-server/dist
 
