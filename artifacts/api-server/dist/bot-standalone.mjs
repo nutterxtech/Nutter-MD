@@ -5041,6 +5041,9 @@ var gzip = promisify(zlib.gzip);
 var gunzip = promisify(zlib.gunzip);
 var SESSION_PREFIX = "NUTTERX-MD::;";
 var activeBotSessionDir = null;
+function getActiveBotSessionDir() {
+  return activeBotSessionDir;
+}
 async function loadSessionFromEnv() {
   const sessionId = process.env["SESSION_ID"];
   if (!sessionId) {
@@ -5083,6 +5086,71 @@ async function loadSessionFromEnv() {
     logger.error({ err }, "Failed to parse SESSION_ID \u2014 re-pair on the pairing page to get a new one");
     return null;
   }
+}
+var MAX_PREKEYS = 50;
+var SESSION_RAW_BUDGET = 15e4;
+var SENDER_KEY_RAW_BUDGET = 12e4;
+async function encodeSessionToBase64(fileMap) {
+  const toEncode = {};
+  if (fileMap["creds.json"]) {
+    toEncode["creds.json"] = fileMap["creds.json"];
+  } else {
+    logger.warn("creds.json not found in fileMap \u2014 SESSION_ID may be invalid");
+  }
+  const preKeyFiles = Object.keys(fileMap).filter((f) => f.startsWith("pre-key-") && f.endsWith(".json")).sort((a, b) => {
+    const idA = parseInt(a.replace("pre-key-", "").replace(".json", ""), 10) || 0;
+    const idB = parseInt(b.replace("pre-key-", "").replace(".json", ""), 10) || 0;
+    return idA - idB;
+  }).slice(-MAX_PREKEYS);
+  for (const f of preKeyFiles) {
+    toEncode[f] = fileMap[f];
+  }
+  let sessionRawBytes = 0;
+  const sessionFiles = Object.keys(fileMap).filter((f) => f.startsWith("session-") && f.endsWith(".json")).sort();
+  for (const f of sessionFiles) {
+    const size = JSON.stringify(fileMap[f]).length;
+    if (sessionRawBytes + size > SESSION_RAW_BUDGET) break;
+    toEncode[f] = fileMap[f];
+    sessionRawBytes += size;
+  }
+  const sessionCount = Object.keys(toEncode).filter((f) => f.startsWith("session-")).length;
+  if (fileMap["sender-key-memory.json"]) {
+    toEncode["sender-key-memory.json"] = fileMap["sender-key-memory.json"];
+  }
+  let senderKeyRawBytes = 0;
+  const senderKeyFiles = Object.keys(fileMap).filter((f) => f.startsWith("sender-key-") && f.endsWith(".json") && f !== "sender-key-memory.json").sort();
+  for (const f of senderKeyFiles) {
+    const size = JSON.stringify(fileMap[f]).length;
+    if (senderKeyRawBytes + size > SENDER_KEY_RAW_BUDGET) break;
+    toEncode[f] = fileMap[f];
+    senderKeyRawBytes += size;
+  }
+  const senderKeyCount = Object.keys(toEncode).filter((f) => f.startsWith("sender-key-")).length;
+  logger.info(
+    {
+      totalFiles: Object.keys(toEncode).length,
+      preKeys: preKeyFiles.length,
+      sessions: sessionCount,
+      senderKeys: senderKeyCount
+    },
+    "Encoding session (creds + pre-keys + sessions + sender-keys)"
+  );
+  const json = Buffer.from(JSON.stringify(toEncode), "utf-8");
+  const compressed = await gzip(json);
+  const encoded = SESSION_PREFIX + compressed.toString("base64");
+  const charLen = encoded.length;
+  if (charLen > 6e4) {
+    logger.warn(
+      { charLen, herokuLimit: 65536 },
+      "SESSION_ID is large \u2014 approaching Heroku 64 KB limit. Consider re-pairing."
+    );
+  } else {
+    logger.info(
+      { charLen, herokuLimit: 65536 },
+      "SESSION_ID size OK"
+    );
+  }
+  return encoded;
 }
 
 // src/bot/store.ts
@@ -5193,7 +5261,7 @@ var MENU_CATEGORIES = [
   {
     icon: "\u2699\uFE0F",
     name: "TOOLS",
-    commands: ["sticker", "ping", "alive", "menu", "owner", "settings", "restart", "setprefix"]
+    commands: ["sticker", "ping", "alive", "menu", "owner", "settings", "restart", "setprefix", "refreshsession"]
   },
   {
     icon: "\u{1F512}",
@@ -5426,6 +5494,47 @@ async function handleRestart(sock, _msg, ctx) {
   }
   await sock.sendMessage(ctx.jid, { text: "Restarting..." });
   setTimeout(() => process.exit(0), 1e3);
+}
+async function handleRefreshSession(sock, _msg, ctx) {
+  if (!ctx.isOwner) {
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Only owner command" });
+    return;
+  }
+  const sessionDir = getActiveBotSessionDir();
+  if (!sessionDir) {
+    await sock.sendMessage(ctx.jid, { text: "\u26A0\uFE0F Session directory not found. Bot may not be fully initialized." });
+    return;
+  }
+  await sock.sendMessage(ctx.jid, { text: "\u23F3 Reading live session files and building new SESSION_ID \u2014 please wait..." });
+  try {
+    const files = fs2.readdirSync(sessionDir);
+    const fileMap = {};
+    for (const file of files) {
+      try {
+        fileMap[file] = JSON.parse(fs2.readFileSync(path2.join(sessionDir, file), "utf-8"));
+      } catch {
+      }
+    }
+    const sessionCount = files.filter((f) => f.startsWith("session-")).length;
+    const senderKeyCount = files.filter((f) => f.startsWith("sender-key-") && f !== "sender-key-memory.json").length;
+    const totalKb = Buffer.byteLength(JSON.stringify(fileMap)) / 1024;
+    const newSessionId = await encodeSessionToBase64(fileMap);
+    await sock.sendMessage(ctx.jid, { text: newSessionId });
+    await sock.sendMessage(ctx.jid, {
+      text: `\u2705 *New SESSION_ID generated!*
+
+\u{1F4CA} *Stats:*
+\u2022 Session files:    ${sessionCount}
+\u2022 Sender-key files: ${senderKeyCount}
+\u2022 Raw size:         ${totalKb.toFixed(1)} KB
+
+Copy the SESSION_ID above and set it as the *SESSION_ID* config var on Heroku, then redeploy.
+After that, all commands (DM + groups) will respond instantly.`
+    });
+  } catch (err) {
+    logger.error({ err }, "handleRefreshSession failed");
+    await sock.sendMessage(ctx.jid, { text: "\u274C Failed to generate SESSION_ID. Check server logs." });
+  }
 }
 
 // src/bot/commands/group.ts
@@ -6082,6 +6191,9 @@ async function handleMessage(sock, msg) {
       return handleSticker(sock, msg, ctx);
     case "restart":
       return handleRestart(sock, msg, ctx);
+    case "refreshsession":
+    case "getsession":
+      return handleRefreshSession(sock, msg, ctx);
     // ── Bot status settings (owner only) ─────────────────────────────────────
     case "autoviewstatus":
     case "autoview": {

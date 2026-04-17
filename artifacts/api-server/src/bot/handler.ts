@@ -10,6 +10,7 @@ import {
   handleSettings,
   handleSticker,
   handleRestart,
+  handleRefreshSession,
 } from "./commands/general";
 import {
   handleKick,
@@ -347,6 +348,8 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     case "settings":      return handleSettings(sock, msg, ctx, prefix);
     case "sticker":       return handleSticker(sock, msg, ctx);
     case "restart":       return handleRestart(sock, msg, ctx);
+    case "refreshsession":
+    case "getsession":    return handleRefreshSession(sock, msg, ctx);
 
     // ── Bot status settings (owner only) ─────────────────────────────────────
     case "autoviewstatus":

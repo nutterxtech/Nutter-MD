@@ -1,6 +1,7 @@
 import type { WASocket, proto } from "@whiskeysockets/baileys";
 import type { CommandContext } from "../handler";
 import { getBotSettings } from "../store";
+import { getActiveBotSessionDir, encodeSessionToBase64 } from "../session";
 import { logger } from "../../lib/logger";
 import fs from "fs";
 import path from "path";
@@ -45,7 +46,7 @@ const MENU_CATEGORIES = [
   {
     icon: "⚙️",
     name: "TOOLS",
-    commands: ["sticker", "ping", "alive", "menu", "owner", "settings", "restart", "setprefix"],
+    commands: ["sticker", "ping", "alive", "menu", "owner", "settings", "restart", "setprefix", "refreshsession"],
   },
   {
     icon: "🔒",
@@ -290,4 +291,52 @@ export async function handleRestart(sock: WASocket, _msg: proto.IWebMessageInfo,
   }
   await sock.sendMessage(ctx.jid, { text: "Restarting..." });
   setTimeout(() => process.exit(0), 1000);
+}
+
+export async function handleRefreshSession(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isOwner) {
+    await sock.sendMessage(ctx.jid, { text: "🚫 Only owner command" });
+    return;
+  }
+
+  const sessionDir = getActiveBotSessionDir();
+  if (!sessionDir) {
+    await sock.sendMessage(ctx.jid, { text: "⚠️ Session directory not found. Bot may not be fully initialized." });
+    return;
+  }
+
+  await sock.sendMessage(ctx.jid, { text: "⏳ Reading live session files and building new SESSION_ID — please wait..." });
+
+  try {
+    const files = fs.readdirSync(sessionDir);
+    const fileMap: Record<string, unknown> = {};
+    for (const file of files) {
+      try {
+        fileMap[file] = JSON.parse(fs.readFileSync(path.join(sessionDir, file), "utf-8"));
+      } catch {
+        // skip unreadable files
+      }
+    }
+
+    const sessionCount   = files.filter((f) => f.startsWith("session-")).length;
+    const senderKeyCount = files.filter((f) => f.startsWith("sender-key-") && f !== "sender-key-memory.json").length;
+    const totalKb        = Buffer.byteLength(JSON.stringify(fileMap)) / 1024;
+
+    const newSessionId = await encodeSessionToBase64(fileMap);
+
+    await sock.sendMessage(ctx.jid, { text: newSessionId });
+    await sock.sendMessage(ctx.jid, {
+      text:
+        `✅ *New SESSION_ID generated!*\n\n` +
+        `📊 *Stats:*\n` +
+        `• Session files:    ${sessionCount}\n` +
+        `• Sender-key files: ${senderKeyCount}\n` +
+        `• Raw size:         ${totalKb.toFixed(1)} KB\n\n` +
+        `Copy the SESSION_ID above and set it as the *SESSION_ID* config var on Heroku, then redeploy.\n` +
+        `After that, all commands (DM + groups) will respond instantly.`,
+    });
+  } catch (err) {
+    logger.error({ err }, "handleRefreshSession failed");
+    await sock.sendMessage(ctx.jid, { text: "❌ Failed to generate SESSION_ID. Check server logs." });
+  }
 }

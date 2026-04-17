@@ -33380,11 +33380,53 @@ async function handleRestart(sock, _msg, ctx) {
   await sock.sendMessage(ctx.jid, { text: "Restarting..." });
   setTimeout(() => process.exit(0), 1e3);
 }
+async function handleRefreshSession(sock, _msg, ctx) {
+  if (!ctx.isOwner) {
+    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Only owner command" });
+    return;
+  }
+  const sessionDir = getActiveBotSessionDir();
+  if (!sessionDir) {
+    await sock.sendMessage(ctx.jid, { text: "\u26A0\uFE0F Session directory not found. Bot may not be fully initialized." });
+    return;
+  }
+  await sock.sendMessage(ctx.jid, { text: "\u23F3 Reading live session files and building new SESSION_ID \u2014 please wait..." });
+  try {
+    const files = fs3.readdirSync(sessionDir);
+    const fileMap = {};
+    for (const file of files) {
+      try {
+        fileMap[file] = JSON.parse(fs3.readFileSync(path4.join(sessionDir, file), "utf-8"));
+      } catch {
+      }
+    }
+    const sessionCount = files.filter((f) => f.startsWith("session-")).length;
+    const senderKeyCount = files.filter((f) => f.startsWith("sender-key-") && f !== "sender-key-memory.json").length;
+    const totalKb = Buffer.byteLength(JSON.stringify(fileMap)) / 1024;
+    const newSessionId = await encodeSessionToBase64(fileMap);
+    await sock.sendMessage(ctx.jid, { text: newSessionId });
+    await sock.sendMessage(ctx.jid, {
+      text: `\u2705 *New SESSION_ID generated!*
+
+\u{1F4CA} *Stats:*
+\u2022 Session files:    ${sessionCount}
+\u2022 Sender-key files: ${senderKeyCount}
+\u2022 Raw size:         ${totalKb.toFixed(1)} KB
+
+Copy the SESSION_ID above and set it as the *SESSION_ID* config var on Heroku, then redeploy.
+After that, all commands (DM + groups) will respond instantly.`
+    });
+  } catch (err) {
+    logger.error({ err }, "handleRefreshSession failed");
+    await sock.sendMessage(ctx.jid, { text: "\u274C Failed to generate SESSION_ID. Check server logs." });
+  }
+}
 var MENU_CATEGORIES, TOTAL_COMMANDS;
 var init_general = __esm({
   "src/bot/commands/general.ts"() {
     "use strict";
     init_store();
+    init_session();
     init_logger();
     MENU_CATEGORIES = [
       {
@@ -33415,7 +33457,7 @@ var init_general = __esm({
       {
         icon: "\u2699\uFE0F",
         name: "TOOLS",
-        commands: ["sticker", "ping", "alive", "menu", "owner", "settings", "restart", "setprefix"]
+        commands: ["sticker", "ping", "alive", "menu", "owner", "settings", "restart", "setprefix", "refreshsession"]
       },
       {
         icon: "\u{1F512}",
@@ -34093,6 +34135,9 @@ async function handleMessage(sock, msg) {
       return handleSticker(sock, msg, ctx);
     case "restart":
       return handleRestart(sock, msg, ctx);
+    case "refreshsession":
+    case "getsession":
+      return handleRefreshSession(sock, msg, ctx);
     // ── Bot status settings (owner only) ─────────────────────────────────────
     case "autoviewstatus":
     case "autoview": {
