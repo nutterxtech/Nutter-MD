@@ -69,42 +69,43 @@ export async function loadSessionFromEnv(): Promise<{
   }
 }
 
-// Files that must be included for the bot to reconnect AND decrypt first messages.
-//   creds.json     → registration identity + signed pre-key → reconnection to WA
-//   pre-key-N.json → one-time pre-keys uploaded to WA servers → decrypt first
-//                    message from any new contact that fetches one of these keys
+// SESSION_ID encoding strategy — keep it tiny (< 2 KB encoded):
 //
-// Excluded deliberately to stay within Heroku's 64 KB config-var limit:
-//   session-*.json          → P2P Signal sessions; re-established automatically
-//                             via key-retry (getMessage returns undefined)
-//   sender-key-*.json       → Group sender keys; re-exchanged on bot reconnect
-//   app-state-sync-key-*.json / app-state-sync-version-*.json → not needed for
-//                             message decryption at all
+//   ONLY creds.json is included. This matches how bots like KEITH work
+//   (their SESSION_ID decodes to exactly the creds.json object, ~1.9 KB).
 //
-// Estimated encoded size of creds + 30 pre-keys ≈ 4–8 KB — well under 64 KB.
-const ESSENTIAL_PREFIXES = ["creds.json", "pre-key-"];
-
+//   Why creds.json is enough:
+//     • noiseKey / signedIdentityKey / signedPreKey → reconnects to WA servers
+//     • nextPreKeyId / firstUnuploadedPreKeyId      → Baileys generates a FRESH
+//       batch of one-time pre-keys on every startup and uploads them to WA
+//     • All other fields (registrationId, account, etc.) → re-used as-is
+//
+//   What happens to existing Signal sessions / group sender-keys:
+//     • Baileys has no session-*.json / sender-key-*.json on startup
+//     • First message from a contact: getMessage returns undefined →
+//       Baileys sends key-retry → contact retransmits with fresh pre-key
+//       → session re-established (~15-30 s delay, one time only)
+//     • Group sender keys: re-exchanged automatically on group reconnect
+//
+//   Estimated SESSION_ID size: ~1.5-2 KB — well within Heroku's 64 KB limit.
 export async function encodeSessionToBase64(fileMap: SessionFileMap): Promise<string> {
-  const essential: SessionFileMap = {};
-
-  for (const [filename, content] of Object.entries(fileMap)) {
-    if (ESSENTIAL_PREFIXES.some((p) => filename === p || filename.startsWith(p))) {
-      essential[filename] = content;
-    }
+  const creds = fileMap["creds.json"];
+  if (!creds) {
+    // Fallback: if for some reason creds.json is absent, encode everything
+    logger.warn("creds.json not found in fileMap — encoding all files as fallback");
+    const json       = Buffer.from(JSON.stringify(fileMap), "utf-8");
+    const compressed = await gzip(json);
+    const encoded    = SESSION_PREFIX + compressed.toString("base64");
+    logger.info({ byteLength: encoded.length }, "SESSION_ID size (fallback, all files)");
+    return encoded;
   }
 
-  // Safety fallback: if filtering left us with nothing, encode everything
-  const toEncode = Object.keys(essential).length > 0 ? essential : fileMap;
-
-  const fileNames = Object.keys(toEncode);
-  logger.info(
-    { files: fileNames.length, names: fileNames.slice(0, 8) },
-    "Encoding session (creds + pre-keys only)"
-  );
+  // Wrap in file-map so the decoder (loadSessionFromEnv) can write it to disk
+  const toEncode = { "creds.json": creds };
 
   const json       = Buffer.from(JSON.stringify(toEncode), "utf-8");
   const compressed = await gzip(json);
   const encoded    = SESSION_PREFIX + compressed.toString("base64");
-  logger.info({ byteLength: encoded.length }, "SESSION_ID size (characters)");
+  logger.info({ byteLength: encoded.length }, "SESSION_ID size (creds.json only)");
   return encoded;
 }

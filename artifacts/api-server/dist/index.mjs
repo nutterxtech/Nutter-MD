@@ -28467,25 +28467,23 @@ async function loadSessionFromEnv() {
   }
 }
 async function encodeSessionToBase64(fileMap) {
-  const essential = {};
-  for (const [filename, content] of Object.entries(fileMap)) {
-    if (ESSENTIAL_PREFIXES.some((p) => filename === p || filename.startsWith(p))) {
-      essential[filename] = content;
-    }
+  const creds = fileMap["creds.json"];
+  if (!creds) {
+    logger.warn("creds.json not found in fileMap \u2014 encoding all files as fallback");
+    const json2 = Buffer.from(JSON.stringify(fileMap), "utf-8");
+    const compressed2 = await gzip(json2);
+    const encoded2 = SESSION_PREFIX + compressed2.toString("base64");
+    logger.info({ byteLength: encoded2.length }, "SESSION_ID size (fallback, all files)");
+    return encoded2;
   }
-  const toEncode = Object.keys(essential).length > 0 ? essential : fileMap;
-  const fileNames = Object.keys(toEncode);
-  logger.info(
-    { files: fileNames.length, names: fileNames.slice(0, 8) },
-    "Encoding session (creds + pre-keys only)"
-  );
+  const toEncode = { "creds.json": creds };
   const json = Buffer.from(JSON.stringify(toEncode), "utf-8");
   const compressed = await gzip(json);
   const encoded = SESSION_PREFIX + compressed.toString("base64");
-  logger.info({ byteLength: encoded.length }, "SESSION_ID size (characters)");
+  logger.info({ byteLength: encoded.length }, "SESSION_ID size (creds.json only)");
   return encoded;
 }
-var gzip, gunzip, SESSION_PREFIX, ESSENTIAL_PREFIXES;
+var gzip, gunzip, SESSION_PREFIX;
 var init_session = __esm({
   "src/bot/session.ts"() {
     "use strict";
@@ -28493,7 +28491,6 @@ var init_session = __esm({
     gzip = promisify(zlib.gzip);
     gunzip = promisify(zlib.gunzip);
     SESSION_PREFIX = "NUTTERX-MD::;";
-    ESSENTIAL_PREFIXES = ["creds.json", "pre-key-"];
   }
 });
 
