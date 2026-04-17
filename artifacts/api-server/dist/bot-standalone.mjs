@@ -6371,12 +6371,15 @@ async function connectBot(sessionAuth) {
         const remoteJid = msg.key?.remoteJid || "";
         const remoteNumber = remoteJid.split(":")[0].split("@")[0];
         if (msg.key?.fromMe) {
+          const isGroupJid = remoteJid.endsWith("@g.us");
           const isSelfChat = botNumber && remoteNumber === botNumber;
-          if (!isSelfChat) {
-            logger.info({ jid: remoteJid }, "\u21A9 fromMe echo \u2014 skipped (bot's own outgoing message)");
+          if (!isSelfChat && !isGroupJid) {
+            logger.info({ jid: remoteJid }, "\u21A9 fromMe DM echo \u2014 skipped");
             continue;
           }
-          logger.info({ jid: remoteJid }, "\u{1F464} Self-chat command from owner's device \u2014 processing");
+          if (isSelfChat) {
+            logger.info({ jid: remoteJid }, "\u{1F464} Self-chat \u2014 processing as owner command");
+          }
         }
         const hasMessage = !!msg.message;
         const hasJid = !!msg.key?.remoteJid;

@@ -237,15 +237,23 @@ async function connectBot(sessionAuth: {
         const remoteNumber = remoteJid.split(":")[0].split("@")[0];
 
         if (msg.key?.fromMe) {
-          // Self-chat: owner typed a command in their own phone's "Saved Messages"
-          // (remoteJid = bot's own number). Process it so the owner can control
-          // the bot directly from the bot's linked device.
+          // Three fromMe scenarios:
+          //   1. Self-chat: remoteJid = bot's own number (owner texting themselves) → process
+          //   2. Group:    remoteJid ends with @g.us → process (owner types command from
+          //                their phone into a group; prefix check prevents echo loops)
+          //   3. DM to other contact: remoteJid = someone else → skip (bot's sent reply)
+          const isGroupJid = remoteJid.endsWith("@g.us");
           const isSelfChat = botNumber && remoteNumber === botNumber;
-          if (!isSelfChat) {
-            logger.info({ jid: remoteJid }, "↩ fromMe echo — skipped (bot's own outgoing message)");
+
+          if (!isSelfChat && !isGroupJid) {
+            logger.info({ jid: remoteJid }, "↩ fromMe DM echo — skipped");
             continue;
           }
-          logger.info({ jid: remoteJid }, "👤 Self-chat command from owner's device — processing");
+
+          if (isSelfChat) {
+            logger.info({ jid: remoteJid }, "👤 Self-chat — processing as owner command");
+          }
+          // isGroupJid: falls through silently; prefix check rejects bot's own group echoes
         }
 
         const hasMessage = !!msg.message;
