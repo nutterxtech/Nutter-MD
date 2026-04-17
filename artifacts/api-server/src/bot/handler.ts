@@ -35,6 +35,38 @@ import {
 const DEFAULT_BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
 const URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
 
+function printMessageActivity(opts: {
+  msgType: string;
+  pushName: string;
+  senderNumber: string;
+  isGroup: boolean;
+  groupName?: string;
+  groupNumber?: string;
+  isDM?: boolean;
+}) {
+  const botName = (process.env["BOT_NAME"] || "NUTTER-XMD").toUpperCase().split("").join(" ");
+  const border = "╔════════════════════════════╗";
+  const title  = "║ ✉   N E W   M E S S A G E   ✉ ║";
+  const bottom = "╚════════════════════════════╝";
+
+  console.log(`\t ✦ ✦ ✦ { ${botName} } ✦ ✦ ✦`);
+  console.log(border);
+  console.log(title);
+  console.log(bottom);
+
+  if (opts.isGroup && opts.groupName) {
+    console.log(`👥 Group: ${opts.groupName}`);
+    console.log(`   ↳ Group ID: (${opts.groupNumber || ""})`);
+  } else {
+    console.log(`💬 Direct Message`);
+  }
+
+  console.log(`👤 Sender: [${opts.pushName || opts.senderNumber}]`);
+  console.log(`🆔 JID: ${opts.senderNumber}`);
+  console.log(`📋 Message Type: ${opts.msgType}`);
+  console.log("");
+}
+
 export interface CommandContext {
   jid: string;
   isGroup: boolean;
@@ -110,7 +142,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     msg.message?.templateButtonReplyMessage?.selectedId ||
     "";
 
-  logger.info({ jid, isGroup, fromMe: msg.key.fromMe, sender: senderNumber, bodyLen: body.length }, "Message received");
+  const msgType = Object.keys(msg.message || {})[0] || "unknown";
 
   if (!body) return;
 
@@ -118,6 +150,8 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   let isSenderGroupAdmin = false;
   let isBotGroupAdmin = false;
   let prefix = defaultPrefix;
+  let groupName: string | undefined;
+  let groupNumber: string | undefined;
 
   if (isGroup) {
     try {
@@ -128,6 +162,8 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
       }
 
       const groupMeta = await sock.groupMetadata(jid);
+      groupName = groupMeta.subject;
+      groupNumber = jid.split("@")[0];
       const botNumber = botJidFull.split(":")[0].split("@")[0];
       const senderNum = senderNumber;
 
@@ -171,6 +207,15 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
       logger.warn({ err }, "Failed to fetch group metadata");
     }
   }
+
+  printMessageActivity({
+    msgType,
+    pushName: msg.pushName || "",
+    senderNumber,
+    isGroup,
+    groupName,
+    groupNumber,
+  });
 
   if (!body.startsWith(prefix)) {
     if (isGroup && groupSettings?.autoReply) {

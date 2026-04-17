@@ -5787,6 +5787,26 @@ ${ctx.prefix}autoreply list`
 // src/bot/handler.ts
 var DEFAULT_BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
 var URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
+function printMessageActivity(opts) {
+  const botName = (process.env["BOT_NAME"] || "NUTTER-XMD").toUpperCase().split("").join(" ");
+  const border = "\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557";
+  const title = "\u2551 \u2709   N E W   M E S S A G E   \u2709 \u2551";
+  const bottom = "\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D";
+  console.log(`	 \u2726 \u2726 \u2726 { ${botName} } \u2726 \u2726 \u2726`);
+  console.log(border);
+  console.log(title);
+  console.log(bottom);
+  if (opts.isGroup && opts.groupName) {
+    console.log(`\u{1F465} Group: ${opts.groupName}`);
+    console.log(`   \u21B3 Group ID: (${opts.groupNumber || ""})`);
+  } else {
+    console.log(`\u{1F4AC} Direct Message`);
+  }
+  console.log(`\u{1F464} Sender: [${opts.pushName || opts.senderNumber}]`);
+  console.log(`\u{1F194} JID: ${opts.senderNumber}`);
+  console.log(`\u{1F4CB} Message Type: ${opts.msgType}`);
+  console.log("");
+}
 async function handleStatusMessage(sock, msg) {
   const settings = getBotSettings();
   if (settings.autoViewStatus) {
@@ -5823,12 +5843,14 @@ async function handleMessage(sock, msg) {
   const botMode = (process.env["BOT_MODE"] || "public").toLowerCase();
   if (botMode === "private" && !isOwner) return;
   const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || msg.message?.documentMessage?.caption || msg.message?.buttonsResponseMessage?.selectedButtonId || msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId || msg.message?.templateButtonReplyMessage?.selectedId || "";
-  logger.info({ jid, isGroup, fromMe: msg.key.fromMe, sender: senderNumber, bodyLen: body.length }, "Message received");
+  const msgType = Object.keys(msg.message || {})[0] || "unknown";
   if (!body) return;
   let groupSettings = null;
   let isSenderGroupAdmin = false;
   let isBotGroupAdmin = false;
   let prefix = defaultPrefix;
+  let groupName;
+  let groupNumber;
   if (isGroup) {
     try {
       groupSettings = getGroupSettings(jid);
@@ -5836,6 +5858,8 @@ async function handleMessage(sock, msg) {
         prefix = groupSettings.customPrefix;
       }
       const groupMeta = await sock.groupMetadata(jid);
+      groupName = groupMeta.subject;
+      groupNumber = jid.split("@")[0];
       const botNumber = botJidFull.split(":")[0].split("@")[0];
       const senderNum = senderNumber;
       for (const participant of groupMeta.participants) {
@@ -5875,6 +5899,14 @@ async function handleMessage(sock, msg) {
       logger.warn({ err }, "Failed to fetch group metadata");
     }
   }
+  printMessageActivity({
+    msgType,
+    pushName: msg.pushName || "",
+    senderNumber,
+    isGroup,
+    groupName,
+    groupNumber
+  });
   if (!body.startsWith(prefix)) {
     if (isGroup && groupSettings?.autoReply) {
       try {
