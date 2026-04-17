@@ -5861,11 +5861,21 @@ async function connectBot(sessionAuth) {
   const {
     default: makeWASocket,
     DisconnectReason,
-    Browsers
+    Browsers,
+    fetchLatestBaileysVersion
   } = await import("@whiskeysockets/baileys");
   const { default: NodeCache } = await Promise.resolve().then(() => __toESM(require_node_cache2(), 1));
   const msgRetryCounterCache = new NodeCache();
+  let waVersion;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    waVersion = version;
+    logger.info({ version }, "Using WhatsApp Web version");
+  } catch {
+    logger.warn("Could not fetch latest WA version \u2014 using Baileys default");
+  }
   const sock = makeWASocket({
+    version: waVersion,
     auth: sessionAuth.state,
     printQRInTerminal: false,
     browser: Browsers.ubuntu("Chrome"),

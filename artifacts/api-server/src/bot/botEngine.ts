@@ -29,12 +29,24 @@ async function connectBot(sessionAuth: {
     default: makeWASocket,
     DisconnectReason,
     Browsers,
+    fetchLatestBaileysVersion,
   } = await import("@whiskeysockets/baileys");
 
   const { default: NodeCache } = await import("node-cache");
   const msgRetryCounterCache = new NodeCache();
 
+  // Fetch the latest WhatsApp Web version so the client isn't rejected (405)
+  let waVersion: [number, number, number] | undefined;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    waVersion = version;
+    logger.info({ version }, "Using WhatsApp Web version");
+  } catch {
+    logger.warn("Could not fetch latest WA version — using Baileys default");
+  }
+
   const sock = makeWASocket({
+    version: waVersion,
     auth: sessionAuth.state as Parameters<typeof makeWASocket>[0]["auth"],
     printQRInTerminal: false,
     browser: Browsers.ubuntu("Chrome"),
@@ -76,7 +88,7 @@ async function connectBot(sessionAuth: {
         return;
       }
 
-      // 403 = forbidden: account banned or invalid session
+      // 403 = forbidden: account banned or session rejected
       if (reason === 403) {
         logger.error("❌ Session rejected (403). Generate a new SESSION_ID from the pairing page.");
         return;

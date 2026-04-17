@@ -1,0 +1,12 @@
+"reason":405,"message":"Connection Failure","msg":"Connection closed — reason 405 (Connection Failure)"}
+2026-04-17T12:50:54.313303+00:00 app[web.1]: {"level":40,"time":1776430254312,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","msg":"🔄 Reconnecting... (attempt 2/10)"}
+2026-04-17T12:51:01.932932+00:00 app[web.1]: {"level":40,"time":1776430261932,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","reason":405,"message":"Connection Failure","msg":"Connection closed — reason 405 (Connection Failure)"}
+2026-04-17T12:51:01.933402+00:00 app[web.1]: {"level":40,"time":1776430261932,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","msg":"🔄 Reconnecting... (attempt 3/10)"}
+2026-04-17T12:51:10.694551+00:00 app[web.1]: {"level":40,"time":1776430270694,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","reason":405,"message":"Connection Failure","msg":"Connection closed — reason 405 (Connection Failure)"}
+2026-04-17T12:51:10.695057+00:00 app[web.1]: {"level":40,"time":1776430270694,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","msg":"🔄 Reconnecting... (attempt 4/10)"}
+2026-04-17T12:51:18.947288+00:00 app[web.1]: {"level":40,"time":1776430278947,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","reason":405,"message":"Connection Failure","msg":"Connection closed — reason 405 (Connection Failure)"}
+2026-04-17T12:51:18.947669+00:00 app[web.1]: {"level":40,"time":1776430278947,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","msg":"🔄 Reconnecting... (attempt 5/10)"}
+2026-04-17T12:51:27.222772+00:00 app[web.1]: {"level":40,"time":1776430287222,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","reason":405,"message":"Connection Failure","msg":"Connection closed — reason 405 (Connection Failure)"}
+2026-04-17T12:51:27.223275+00:00 app[web.1]: {"level":40,"time":1776430287222,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","msg":"🔄 Reconnecting... (attempt 6/10)"}
+2026-04-17T12:51:34.370665+00:00 app[web.1]: {"level":40,"time":1776430294370,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","reason":405,"message":"Connection Failure","msg":"Connection closed — reason 405 (Connection Failure)"}
+2026-04-17T12:51:34.370980+00:00 app[web.1]: {"level":40,"time":1776430294370,"pid":4,"hostname":"f73ab72c-4bd4-4595-89b5-7fa699956bbb","msg":"🔄 Reconnecting... (attempt 7/10)"}
