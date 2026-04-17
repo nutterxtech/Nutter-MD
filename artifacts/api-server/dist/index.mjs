@@ -39482,8 +39482,7 @@ async function startPairingSession(phoneNumber, attempt = 0, skipPairCodeRequest
         await sock.sendMessage(jid, {
           text: `*NUTTER-XMD* is now linked! \u2705
 
-\u23F3 Collecting your group session keys \u2014 this takes up to 60 seconds.
-Please wait. Your Session ID will appear here when ready.`
+\u23F3 Please wait...`
         });
         logger.info({ jid }, "Sent 'linked' notification \u2014 entering key-settling phase");
       } catch (err) {
@@ -39660,8 +39659,7 @@ async function startQrSession(attempt = 0) {
           await sock.sendMessage(jid, {
             text: `*NUTTER-XMD* is now linked! \u2705
 
-\u23F3 Collecting your group session keys \u2014 this takes up to 60 seconds.
-Please wait. Your Session ID will appear here when ready.`
+\u23F3 Please wait...`
           });
           logger.info({ jid }, "Sent 'linked' notification \u2014 entering key-settling phase");
         } catch (err) {

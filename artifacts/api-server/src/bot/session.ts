@@ -71,7 +71,15 @@ export async function loadSessionFromEnv(): Promise<{
 
     const authState = await useMultiFileAuthState(sessionDir);
     activeBotSessionDir = sessionDir;
-    logger.info({ sessionDir, fileCount }, "Session loaded from SESSION_ID env var");
+
+    const allFiles = Object.keys(fileMap);
+    const sessionFiles   = allFiles.filter((f) => f.startsWith("session-")).length;
+    const senderKeyFiles = allFiles.filter((f) => f.startsWith("sender-key-") && f !== "sender-key-memory.json").length;
+    const preKeyFiles    = allFiles.filter((f) => f.startsWith("pre-key-")).length;
+    logger.info(
+      { sessionDir, fileCount, sessionFiles, senderKeyFiles, preKeyFiles },
+      "📦 SESSION_ID loaded — session files control DM decrypt speed; sender-key files control group decrypt speed"
+    );
     return authState;
   } catch (err) {
     logger.error({ err }, "Failed to parse SESSION_ID — re-pair on the pairing page to get a new one");

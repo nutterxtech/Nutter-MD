@@ -176,10 +176,7 @@ export async function startPairingSession(
       // and tells the user to wait while group keys are being collected.
       try {
         await sock.sendMessage(jid, {
-          text:
-            `*NUTTER-XMD* is now linked! ✅\n\n` +
-            `⏳ Collecting your group session keys — this takes up to 60 seconds.\n` +
-            `Please wait. Your Session ID will appear here when ready.`,
+          text: `*NUTTER-XMD* is now linked! ✅\n\n⏳ Please wait...`,
         });
         logger.info({ jid }, "Sent 'linked' notification — entering key-settling phase");
       } catch (err) {
@@ -263,6 +260,16 @@ export async function startPairingSession(
         } catch { /* best-effort */ }
         logger.error({ phoneNumber }, "SESSION_ID encoding failed — user notified");
       }
+
+      // Disconnect the pairing socket cleanly so WhatsApp does not see two
+      // simultaneous connections when the user deploys with this SESSION_ID.
+      // Without this, WA tries to deliver messages to BOTH the pairing session
+      // and the production bot at the same time, causing decryption conflicts.
+      try {
+        await new Promise((r) => setTimeout(r, 2000)); // brief pause so the last message flushes
+        sock.end(undefined);
+        logger.info("Pairing socket disconnected cleanly after SESSION_ID delivery");
+      } catch { /* best-effort */ }
     }
 
     if (connection === "close") {
@@ -403,10 +410,7 @@ export async function startQrSession(attempt = 0): Promise<void> {
       if (jid) {
         try {
           await sock.sendMessage(jid, {
-            text:
-              `*NUTTER-XMD* is now linked! ✅\n\n` +
-              `⏳ Collecting your group session keys — this takes up to 60 seconds.\n` +
-              `Please wait. Your Session ID will appear here when ready.`,
+            text: `*NUTTER-XMD* is now linked! ✅\n\n⏳ Please wait...`,
           });
           logger.info({ jid }, "Sent 'linked' notification — entering key-settling phase");
         } catch (err) {
@@ -490,6 +494,13 @@ export async function startQrSession(attempt = 0): Promise<void> {
           logger.error({ phoneNum }, "SESSION_ID encoding failed — user notified");
         }
       }
+
+      // Disconnect cleanly — same reason as the pair-code path above.
+      try {
+        await new Promise((r) => setTimeout(r, 2000));
+        sock.end(undefined);
+        logger.info("Pairing socket disconnected cleanly after SESSION_ID delivery");
+      } catch { /* best-effort */ }
     }
 
     if (connection === "close") {
