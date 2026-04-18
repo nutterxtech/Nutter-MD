@@ -5,6 +5,10 @@ import { logger } from "../../lib/logger";
 import { safeSend } from "../utils";
 
 export async function handleKick(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "This command requires bot admin privileges." });
     return;
@@ -28,6 +32,12 @@ export async function handleKick(sock: WASocket, msg: proto.IWebMessageInfo, ctx
 }
 
 export async function handleAdd(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
+  // FIX: Added isGroup guard — .add could previously be triggered in DMs,
+  // causing a confusing "Failed to add" error since DMs have no participants.
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "This command requires bot admin privileges." });
     return;
@@ -52,6 +62,10 @@ export async function handleAdd(sock: WASocket, _msg: proto.IWebMessageInfo, ctx
 }
 
 export async function handlePromote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges for this." });
     return;
@@ -70,6 +84,10 @@ export async function handlePromote(sock: WASocket, msg: proto.IWebMessageInfo, 
 }
 
 export async function handleDemote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges for this." });
     return;
@@ -252,6 +270,11 @@ export async function handleSetPrefix(sock: WASocket, _msg: proto.IWebMessageInf
 }
 
 export async function handleTagAll(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
+  // FIX: Added isGroup guard — .tagall in a DM would crash on groupMetadata call.
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges for tagall." });
     return;
@@ -261,10 +284,10 @@ export async function handleTagAll(sock: WASocket, msg: proto.IWebMessageInfo, c
     return;
   }
   try {
-    const groupMeta = await sock.groupMetadata(ctx.jid);
+    const groupMeta    = await sock.groupMetadata(ctx.jid);
     const participants = groupMeta.participants.map((p) => p.id);
     const announcement = args.length > 0 ? args.join(" ") : "📢 Attention everyone!";
-    const mentions = participants.map((jid) => `@${jid.split("@")[0]}`).join(" ");
+    const mentions     = participants.map((jid) => `@${jid.split("@")[0]}`).join(" ");
     await safeSend(sock, ctx.jid, {
       text: `${announcement}\n\n${mentions}`,
       mentions: participants,
@@ -276,8 +299,12 @@ export async function handleTagAll(sock: WASocket, msg: proto.IWebMessageInfo, c
 }
 
 export async function handleGroupInfo(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   try {
-    const groupMeta = await sock.groupMetadata(ctx.jid);
+    const groupMeta  = await sock.groupMetadata(ctx.jid);
     const adminCount = groupMeta.participants.filter(
       (p) => p.admin === "admin" || p.admin === "superadmin"
     ).length;
@@ -285,12 +312,12 @@ export async function handleGroupInfo(sock: WASocket, _msg: proto.IWebMessageInf
       ? new Date(groupMeta.creation * 1000).toLocaleDateString()
       : "Unknown";
 
-    const settings = ctx.groupSettings;
+    const settings    = ctx.groupSettings;
     const protections = [
-      settings?.antilink ? "Antilink" : null,
-      settings?.antibadword ? "Antibadword" : null,
+      settings?.antilink    ? "Antilink"    : null,
+      settings?.antibadword !== "off" ? "Antibadword" : null,
       settings?.antimention ? "Antimention" : null,
-      settings?.mute ? "Muted" : null,
+      settings?.mute        ? "Muted"       : null,
     ].filter(Boolean).join(", ") || "None";
 
     const text =
@@ -310,6 +337,10 @@ export async function handleGroupInfo(sock: WASocket, _msg: proto.IWebMessageInf
 }
 
 export async function handleMute(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges to mute." });
     return;
@@ -329,6 +360,10 @@ export async function handleMute(sock: WASocket, _msg: proto.IWebMessageInfo, ct
 }
 
 export async function handleUnmute(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
+  if (!ctx.isGroup) {
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
+    return;
+  }
   if (!ctx.isBotGroupAdmin) {
     await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges to unmute." });
     return;
@@ -396,7 +431,7 @@ export async function handleAutoReply(sock: WASocket, _msg: proto.IWebMessageInf
     return;
   }
 
-  const subCmd = args[0]?.toLowerCase();
+  const subCmd   = args[0]?.toLowerCase();
   const settings = ensureGroupSettings(ctx.jid);
   let autoReplyMap: Record<string, string> = {};
   try {
@@ -417,13 +452,13 @@ export async function handleAutoReply(sock: WASocket, _msg: proto.IWebMessageInf
   }
 
   if (subCmd === "add") {
-    const rest = args.slice(1).join(" ");
+    const rest         = args.slice(1).join(" ");
     const separatorIdx = rest.indexOf("|");
     if (separatorIdx === -1) {
       await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}autoreply add <trigger> | <response>` });
       return;
     }
-    const trigger = rest.slice(0, separatorIdx).trim().toLowerCase();
+    const trigger  = rest.slice(0, separatorIdx).trim().toLowerCase();
     const response = rest.slice(separatorIdx + 1).trim();
     if (!trigger || !response) {
       await safeSend(sock, ctx.jid, { text: "Trigger and response cannot be empty." });
