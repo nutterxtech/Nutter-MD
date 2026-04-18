@@ -48,14 +48,12 @@ interface GroupMetaEntry {
 }
 const groupMetaCache = new Map<string, GroupMetaEntry>();
 const GROUP_META_TTL = 2 * 60 * 1000; // 2 minutes
-
-const GROUP_META_TIMEOUT = 5_000; // 5 s — prevent indefinite hangs on slow/new sessions
+const GROUP_META_TIMEOUT = 5_000;      // 5 s — prevent indefinite hangs
 
 async function getCachedGroupMeta(sock: WASocket, jid: string): Promise<GroupMetaEntry> {
   const cached = groupMetaCache.get(jid);
   if (cached && cached.expireAt > Date.now()) return cached;
 
-  // Race the WA API call against a timeout so a hung socket doesn't freeze the handler
   const meta = await Promise.race([
     sock.groupMetadata(jid),
     new Promise<never>((_, reject) =>
@@ -76,11 +74,6 @@ export function invalidateGroupMetaCache(jid: string) {
   groupMetaCache.delete(jid);
 }
 
-/**
- * Bulk-populate the group metadata cache from a record of groups (e.g. from
- * sock.groupFetchAllParticipating()). Called once on connection-open so the
- * very first message from any group hits the cache instead of calling the API.
- */
 export function populateGroupMetaCache(
   groups: Record<string, { subject: string; participants: Array<{ id: string; admin?: "admin" | "superadmin" | null }> }>
 ) {
@@ -91,10 +84,6 @@ export function populateGroupMetaCache(
   return Object.keys(groups).length;
 }
 
-/**
- * Upsert a single group into the cache. Used by groups.upsert / groups.update
- * listeners to keep metadata current without waiting for the first message.
- */
 export function upsertGroupMetaCache(
   jid: string,
   meta: { subject?: string; participants?: Array<{ id: string; admin?: "admin" | "superadmin" | null }> }
@@ -154,27 +143,18 @@ export interface CommandContext {
 export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
   const settings = getBotSettings();
 
-  // View the status (send read receipt)
   if (settings.autoViewStatus) {
     try { await sock.readMessages([msg.key]); } catch {}
   }
 
-  // React with emoji — must be sent directly to the status poster's JID so it
-  // registers as a receipt (shows under "Viewed by" with the emoji). Sending to
-  // "status@broadcast" does NOT trigger the receipt on the poster's side.
   if (settings.autoLikeStatus && msg.key.participant) {
     try {
-      // Implicitly view if autoViewStatus is off — required by WA protocol before reacting
       if (!settings.autoViewStatus) {
         try { await sock.readMessages([msg.key]); } catch {}
       }
       const emojiList = (settings.statusLikeEmoji || "❤️")
         .split(",").map((e) => e.trim()).filter(Boolean);
       const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
-      // Send the reaction directly to the status poster (not "status@broadcast")
-      // so WhatsApp records it as an emoji receipt on their status update.
-      // The react key MUST keep remoteJid = "status@broadcast" so WhatsApp
-      // registers the emoji as a receipt on the status update, not a DM reaction.
       await safeSend(sock, msg.key.participant, {
         react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } },
       });
@@ -201,21 +181,24 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   logger.info({ jid, fromMe: msg.key.fromMe, msgKeys: Object.keys(msg.message || {}) }, "📩 handleMessage reached");
 
   const isGroup = jid.endsWith("@g.us");
-
-  // Identify sender. In a DM with fromMe=true, the sender IS the bot owner
-  // (they typed from their primary phone); remoteJid is the recipient, not sender.
   const botJidFull = sock.user?.id || "";
+
   const senderJid = isGroup
-  ? msg.key.participant || botJidFull
-  : msg.key.fromMe
-    ? `${ownerNumber}@s.whatsapp.net`
-    : jid;
+    ? msg.key.participant || botJidFull
+    : msg.key.fromMe
+      ? `${ownerNumber}@s.whatsapp.net`
+      : jid;
 
-// Resolve LID → real JID BEFORE extracting number
-const realSenderJid = resolveLid(senderJid);
+  // Resolve LID → real JID BEFORE extracting number
+  const realSenderJid = resolveLid(senderJid);
+  const senderNumber  = realSenderJid.split(":")[0].split("@")[0];
+  const isOwner       = ownerNumber !== "" && senderNumber === ownerNumber;
 
-const senderNumber = realSenderJid.split(":")[0].split("@")[0];
-const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
+  // ── Debug log: shows owner resolution in every message — remove once stable
+  logger.info(
+    { ownerNumber, senderNumber, senderJid, realSenderJid, isOwner, fromMe: msg.key.fromMe },
+    "🔑 Owner resolution"
+  );
 
   const msgType = Object.keys(msg.message || {})[0] || "unknown";
 
@@ -225,7 +208,7 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
     return;
   }
 
-  // ── Extract body FIRST so we can bail early before any expensive API calls ──
+  // ── Extract body ──────────────────────────────────────────────────────────
   const body =
     msg.message?.conversation ||
     msg.message?.extendedTextMessage?.text ||
@@ -237,15 +220,13 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
     msg.message?.templateButtonReplyMessage?.selectedId ||
     "";
 
-  // Non-text messages (senderKeyDistribution, reactions, stickers …) can never
-  // trigger a command or antilink/antibadword — skip group metadata lookup entirely.
   if (!body) {
     printMessageActivity({ msgType, pushName: msg.pushName || "", senderNumber, isGroup });
     logger.info({ jid, msgType }, "No text body — skipped command processing");
     return;
   }
 
-  // ── Text body is present — now fetch group context (with timeout guard) ────────
+  // ── Group context ─────────────────────────────────────────────────────────
   let groupSettings: GroupSettings | null = null;
   let isSenderGroupAdmin = false;
   let isBotGroupAdmin = false;
@@ -258,17 +239,16 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
       groupSettings = getGroupSettings(jid);
       if (groupSettings?.customPrefix) prefix = groupSettings.customPrefix;
 
-      // Cached group metadata (5-second timeout guard in getCachedGroupMeta)
       const groupMeta = await getCachedGroupMeta(sock, jid);
-      groupName = groupMeta.subject;
+      groupName  = groupMeta.subject;
       groupNumber = jid.split("@")[0];
       const botNumber = botJidFull.split(":")[0].split("@")[0];
 
       for (const participant of groupMeta.participants) {
-        const pNum = participant.id.split(":")[0].split("@")[0];
+        const pNum    = participant.id.split(":")[0].split("@")[0];
         const isAdmin = participant.admin === "admin" || participant.admin === "superadmin";
         if (pNum === senderNumber) isSenderGroupAdmin = isAdmin;
-        if (pNum === botNumber)   isBotGroupAdmin = isAdmin;
+        if (pNum === botNumber)    isBotGroupAdmin    = isAdmin;
       }
 
       const msgKey = msg.key as WAMessageKey;
@@ -305,16 +285,7 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
     }
   }
 
-  // Log activity now that we have group name (if available)
-  printMessageActivity({
-    msgType,
-    pushName: msg.pushName || "",
-    senderNumber,
-    isGroup,
-    groupName,
-    groupNumber,
-  });
-
+  printMessageActivity({ msgType, pushName: msg.pushName || "", senderNumber, isGroup, groupName, groupNumber });
   logger.info({ jid, prefix, hasPrefix: body.startsWith(prefix), bodyPreview: body.slice(0, 40) }, "📝 Body extracted");
 
   if (!body.startsWith(prefix)) {
@@ -335,17 +306,15 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
     return;
   }
 
-  // Resolve @lid JIDs to the real @s.whatsapp.net JID for outgoing sendMessage
-  // calls. Sending to a @lid JID works only the very first time (Baileys resolves
-  // in-memory); subsequent calls silently hang because the LID→device lookup needs
-  // a WA server round-trip that never ACKs. resolveLid() uses the LID map that
-  // contacts.upsert populates on connect — if the mapping hasn't arrived yet the
-  // original lid JID is used as fallback (same behaviour as before this fix).
+  // ── Resolve reply JID (used for ALL outgoing replies from here on) ────────
+  // For groups: always the group JID.
+  // For DMs: resolve any @lid to the real @s.whatsapp.net JID.
   const replyJid = isGroup
-  ? jid
-  : msg.key.fromMe
-    ? `${ownerNumber}@s.whatsapp.net`
-    : resolveLid(jid);
+    ? jid
+    : msg.key.fromMe
+      ? `${ownerNumber}@s.whatsapp.net`
+      : resolveLid(jid);
+
   if (replyJid !== jid) {
     logger.info({ lid: jid, resolved: replyJid }, "🔀 @lid resolved to real JID for reply");
   }
@@ -358,12 +327,11 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
 
   const ctx: CommandContext = { jid: replyJid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
-  // Split on any whitespace and drop empty tokens so ".cmd  arg" works like ".cmd arg"
-  const parts = commandText.split(/\s+/).filter(Boolean);
+  const parts       = commandText.split(/\s+/).filter(Boolean);
   const [command = "", ...args] = parts;
   const cmd = command.toLowerCase();
 
-  logger.info({ cmd, jid, sender: senderNumber, isOwner }, "Command received");
+  logger.info({ cmd, jid, replyJid, sender: senderNumber, isOwner }, "Command received");
 
   switch (cmd) {
     // ── General ──────────────────────────────────────────────────────────────
@@ -378,43 +346,44 @@ const isOwner = ownerNumber !== "" && senderNumber === ownerNumber;
     case "getsession":    return handleRefreshSession(sock, msg, ctx);
 
     // ── Bot status settings (owner only) ─────────────────────────────────────
+    // FIX: all safeSend calls use replyJid (not raw jid) so @lid DMs work correctly.
     case "autoviewstatus":
     case "autoview": {
-      if (!isOwner) { await safeSend(sock, jid, { text: "🚫 Only owner command" }); return; }
+      if (!isOwner) { await safeSend(sock, replyJid, { text: "🚫 Only owner command" }); return; }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
-        await safeSend(sock, jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}\nUsage: ${prefix}autoviewstatus on/off` });
+        await safeSend(sock, replyJid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}\nUsage: ${prefix}autoviewstatus on/off` });
         return;
       }
       const enabled = val === "true" || val === "on";
       updateBotSettings({ autoViewStatus: enabled });
-      await safeSend(sock, jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
+      await safeSend(sock, replyJid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
       return;
     }
 
     case "autolikestatus":
     case "autolike": {
-      if (!isOwner) { await safeSend(sock, jid, { text: "🚫 Only owner command" }); return; }
+      if (!isOwner) { await safeSend(sock, replyJid, { text: "🚫 Only owner command" }); return; }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
-        await safeSend(sock, jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}\nUsage: ${prefix}autolikestatus on/off` });
+        await safeSend(sock, replyJid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}\nUsage: ${prefix}autolikestatus on/off` });
         return;
       }
       const enabled = val === "true" || val === "on";
       updateBotSettings({ autoLikeStatus: enabled });
-      await safeSend(sock, jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
+      await safeSend(sock, replyJid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
       return;
     }
 
     case "statusemoji": {
-      if (!isOwner) { await safeSend(sock, jid, { text: "🚫 Only owner command" }); return; }
+      if (!isOwner) { await safeSend(sock, replyJid, { text: "🚫 Only owner command" }); return; }
       const emoji = args.join(" ").trim();
       if (!emoji) {
-        await safeSend(sock, jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}\nUsage: ${prefix}statusemoji ❤️,🔥,😍` });
+        await safeSend(sock, replyJid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}\nUsage: ${prefix}statusemoji ❤️,🔥,😍` });
         return;
       }
       updateBotSettings({ statusLikeEmoji: emoji });
-      await safeSend(sock, jid, { text: `Status like emoji set to: *${emoji}*` });
+      await safeSend(sock, replyJid, { text: `Status like emoji set to: *${emoji}*` });
       return;
     }
 
@@ -461,17 +430,14 @@ export async function handleGroupParticipantsUpdate(
     for (const participant of update.participants) {
       const participantJid = typeof participant === "string" ? participant : participant.id;
       const number = participantJid.split("@")[0];
-      const name = `@${number}`;
+      const name   = `@${number}`;
       const welcomeText = welcomeTemplate
         .replace(/\{name\}/gi, name)
         .replace(/\{group\}/gi, groupMeta.subject);
 
-      await safeSend(sock, groupId, {
-        text: welcomeText,
-        mentions: [participantJid],
-      });
+      await safeSend(sock, groupId, { text: welcomeText, mentions: [participantJid] });
     }
   } catch (err) {
     logger.warn({ err, groupId }, "Failed to send welcome message");
   }
-                              }
+}
