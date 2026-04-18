@@ -3,6 +3,7 @@ import type { CommandContext } from "../handler";
 import { getBotSettings } from "../store";
 import { getActiveBotSessionDir, encodeSessionToBase64 } from "../session";
 import { logger } from "../../lib/logger";
+import { safeSend } from "../utils";
 import fs from "fs";
 import path from "path";
 
@@ -93,9 +94,9 @@ function buildMenuText(prefix: string, pushName: string): string {
 
 export async function handlePing(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const start = Date.now();
-  await sock.sendMessage(ctx.jid, { text: "🏓 Measuring..." }, { quoted: msg });
+  await safeSend(sock, ctx.jid, { text: "🏓 Measuring..." }, { quoted: msg });
   const latency = Date.now() - start;
-  await sock.sendMessage(ctx.jid, { text: `🏓 *Pong!*\n*Latency:* ${latency}ms` }, { quoted: msg });
+  await safeSend(sock, ctx.jid, { text: `🏓 *Pong!*\n*Latency:* ${latency}ms` }, { quoted: msg });
 }
 
 export async function handleAlive(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
@@ -104,7 +105,7 @@ export async function handleAlive(sock: WASocket, _msg: proto.IWebMessageInfo, c
   const minutes = Math.floor((uptime % 3600) / 60);
   const seconds = Math.floor(uptime % 60);
   const text = `*NUTTER-XMD* ⚡\n\n*Status:* Online\n*Uptime:* ${hours}h ${minutes}m ${seconds}s\n*Version:* 9.1.3`;
-  await sock.sendMessage(ctx.jid, { text });
+  await safeSend(sock, ctx.jid, { text });
 }
 
 export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
@@ -117,7 +118,8 @@ export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, ctx
 
   if (imgBuf) {
     // Single message: image + caption + mention (exactly how RAVEN-BOT sends it)
-    await sock.sendMessage(
+    await safeSend(
+      sock,
       ctx.jid,
       {
         image: imgBuf,
@@ -130,7 +132,8 @@ export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, ctx
   } else {
     // Fallback if image asset is missing — text only
     logger.warn("Menu image not found — sending text only");
-    await sock.sendMessage(
+    await safeSend(
+      sock,
       ctx.jid,
       { text: menuText, mentions: [senderJid] },
       { quoted: msg }
@@ -141,11 +144,11 @@ export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, ctx
 export async function handleOwner(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const ownerNumber = process.env["OWNER_NUMBER"] || "";
   if (!ownerNumber) {
-    await sock.sendMessage(ctx.jid, { text: "Owner number not configured." });
+    await safeSend(sock, ctx.jid, { text: "Owner number not configured." });
     return;
   }
   const digits = ownerNumber.replace(/[^0-9]/g, "");
-  await sock.sendMessage(ctx.jid, {
+  await safeSend(sock, ctx.jid, {
     contacts: {
       displayName: "NUTTER-XMD Owner",
       contacts: [{ vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:NUTTER-XMD Owner\nTEL;type=CELL;type=VOICE;waid=${digits}:+${digits}\nEND:VCARD`, displayName: "NUTTER-XMD Owner" }]
@@ -185,7 +188,7 @@ export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo
       `Welcome Text: ${s.welcomeMessage || "Default"}`;
   }
 
-  await sock.sendMessage(ctx.jid, { text: botInfo + groupInfo });
+  await safeSend(sock, ctx.jid, { text: botInfo + groupInfo });
 }
 
 async function downloadToBuffer(mediaMsg: object, type: "image" | "video"): Promise<Buffer> {
@@ -238,7 +241,7 @@ async function extractVideoFirstFrame(videoBuffer: Buffer): Promise<Buffer> {
 export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
   if (!quoted) {
-    await sock.sendMessage(ctx.jid, { text: "Reply to an image or video with .sticker to convert it to a sticker." });
+    await safeSend(sock, ctx.jid, { text: "Reply to an image or video with .sticker to convert it to a sticker." });
     return;
   }
 
@@ -246,7 +249,7 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
   const videoMsg = quoted.videoMessage;
 
   if (!imageMsg && !videoMsg) {
-    await sock.sendMessage(ctx.jid, { text: "Only images and short videos can be converted to stickers. Reply to an image or video." });
+    await safeSend(sock, ctx.jid, { text: "Only images and short videos can be converted to stickers. Reply to an image or video." });
     return;
   }
 
@@ -263,7 +266,7 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
     }
 
     if (!sourceBuffer || sourceBuffer.length === 0) {
-      await sock.sendMessage(ctx.jid, { text: "Could not download the media. Please try again." });
+      await safeSend(sock, ctx.jid, { text: "Could not download the media. Please try again." });
       return;
     }
 
@@ -272,11 +275,11 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
       .webp({ quality: 80 })
       .toBuffer();
 
-    await sock.sendMessage(ctx.jid, { sticker: webpBuffer });
+    await safeSend(sock, ctx.jid, { sticker: webpBuffer });
   } catch (err) {
     logger.error({ err }, "Sticker conversion failed");
     const isNoFfmpeg = err instanceof Error && err.message === "FFMPEG_NOT_FOUND";
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text: isNoFfmpeg
         ? "Video stickers are not supported on this server (ffmpeg not installed). Try sending an image instead."
         : "Sticker conversion failed. Please try again.",
@@ -286,26 +289,26 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
 
 export async function handleRestart(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Only owner command" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Only owner command" });
     return;
   }
-  await sock.sendMessage(ctx.jid, { text: "Restarting..." });
+  await safeSend(sock, ctx.jid, { text: "Restarting..." });
   setTimeout(() => process.exit(0), 1000);
 }
 
 export async function handleRefreshSession(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Only owner command" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Only owner command" });
     return;
   }
 
   const sessionDir = getActiveBotSessionDir();
   if (!sessionDir) {
-    await sock.sendMessage(ctx.jid, { text: "⚠️ Session directory not found. Bot may not be fully initialized." });
+    await safeSend(sock, ctx.jid, { text: "⚠️ Session directory not found. Bot may not be fully initialized." });
     return;
   }
 
-  await sock.sendMessage(ctx.jid, { text: "⏳ Reading live session files and building new SESSION_ID — please wait..." });
+  await safeSend(sock, ctx.jid, { text: "⏳ Reading live session files and building new SESSION_ID — please wait..." });
 
   try {
     const files = fs.readdirSync(sessionDir);
@@ -324,8 +327,8 @@ export async function handleRefreshSession(sock: WASocket, _msg: proto.IWebMessa
 
     const newSessionId = await encodeSessionToBase64(fileMap);
 
-    await sock.sendMessage(ctx.jid, { text: newSessionId });
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, { text: newSessionId });
+    await safeSend(sock, ctx.jid, {
       text:
         `✅ *New SESSION_ID generated!*\n\n` +
         `📊 *Stats:*\n` +
@@ -337,6 +340,6 @@ export async function handleRefreshSession(sock: WASocket, _msg: proto.IWebMessa
     });
   } catch (err) {
     logger.error({ err }, "handleRefreshSession failed");
-    await sock.sendMessage(ctx.jid, { text: "❌ Failed to generate SESSION_ID. Check server logs." });
+    await safeSend(sock, ctx.jid, { text: "❌ Failed to generate SESSION_ID. Check server logs." });
   }
 }

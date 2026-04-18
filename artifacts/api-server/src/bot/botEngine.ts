@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { loadSessionFromEnv } from "./session";
 import { handleMessage, handleStatusMessage, handleGroupParticipantsUpdate, populateGroupMetaCache, upsertGroupMetaCache } from "./handler";
 import { cacheMessage, popCachedMessage, getGroupSettings, getBotSettings, registerLidMapping } from "./store";
+import { safeSend } from "./utils";
 import type { WASocket } from "@whiskeysockets/baileys";
 
 const MAX_RECONNECTS = 2;
@@ -50,7 +51,7 @@ async function onFirstConnect(sock: WASocket) {
     ].filter(Boolean).join("\n");
 
     try {
-      await sock.sendMessage(ownerJid, { text: welcome });
+      await safeSend(sock, ownerJid, { text: welcome });
       logger.info("✅ Sent welcome message to owner");
     } catch (err) {
       logger.warn({ err }, "Could not send welcome message to owner");
@@ -58,10 +59,6 @@ async function onFirstConnect(sock: WASocket) {
   } else {
     logger.warn("OWNER_NUMBER not set — skipping welcome message");
   }
-
-  // Wait 8 s for the WA session to fully settle before sending any actions
-  logger.info("⏳ Waiting 8s for session to settle before auto-join/follow...");
-  await new Promise((r) => setTimeout(r, 8_000));
 
   // ── Auto-join support group ───────────────────────────────────────────────────
   try {
@@ -198,20 +195,26 @@ async function connectBot(sessionAuth: {
         logger.warn({ err }, "Presence update skipped (non-fatal)");
       }
 
-      // Pre-populate group metadata cache so the FIRST message from any group
-      // is a cache hit (no API call). This is the same thing RAVEN-BOT's
-      // makeInMemoryStore achieves via store.bind(client.ev) + groups.upsert.
-      try {
-        const allGroups = await sock.groupFetchAllParticipating();
-        const count = populateGroupMetaCache(
-          allGroups as Record<string, { subject: string; participants: Array<{ id: string; admin?: "admin" | "superadmin" | null }> }>
-        );
-        logger.info({ groups: count }, "✅ Group metadata cache pre-populated");
-      } catch (err) {
-        logger.warn({ err }, "Could not pre-fetch group list — cache will warm on first message");
-      }
+      // Pre-populate group metadata cache in the background so it never
+      // blocks the connection.open handler (heavy on large accounts).
+      setImmediate(async () => {
+        try {
+          const allGroups = await sock.groupFetchAllParticipating();
+          const count = populateGroupMetaCache(
+            allGroups as Record<string, { subject: string; participants: Array<{ id: string; admin?: "admin" | "superadmin" | null }> }>
+          );
+          logger.info({ groups: count }, "✅ Group metadata cache pre-populated");
+        } catch (err) {
+          logger.warn({ err }, "Could not pre-fetch group list — cache will warm on first message");
+        }
+      });
 
-      void onFirstConnect(sock);
+      // Delay onFirstConnect by 8 s so the WA session fully settles before
+      // we send the welcome message and attempt auto-join/follow.
+      // This is non-blocking — connection.open returns immediately.
+      setTimeout(() => {
+        onFirstConnect(sock).catch((err) => logger.warn({ err }, "onFirstConnect error"));
+      }, 8_000);
       return;
     }
 
@@ -272,7 +275,16 @@ async function connectBot(sessionAuth: {
   function enqueueForJid(jid: string, label: string, fn: () => Promise<void>) {
     const prev = jidQueues.get(jid) ?? Promise.resolve();
     const next = prev
-      .then(() => fn())
+      .then(() =>
+        // Per-job 15 s safety net: if fn() hangs for 15 s the queue still
+        // moves on. Individual handlers add their own tighter timeouts.
+        Promise.race([
+          fn(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error(`Queue timeout (15s) for ${label}`)), 15_000)
+          ),
+        ])
+      )
       .catch((err) => logger.error({ err, label, jid }, "Queue handler error"))
       .finally(() => {
         if (jidQueues.get(jid) === next) jidQueues.delete(jid);
@@ -379,12 +391,12 @@ async function connectBot(sessionAuth: {
             const innerMsg = capturedDeleted.message;
             if (innerMsg?.conversation || innerMsg?.extendedTextMessage?.text) {
               const text = innerMsg.conversation || innerMsg.extendedTextMessage?.text || "";
-              await sock.sendMessage(ownerJid, { text: `${header}\n\n💬 "${text}"` });
+              await safeSend(sock, ownerJid, { text: `${header}\n\n💬 "${text}"` });
             } else if (innerMsg?.imageMessage) {
-              await sock.sendMessage(ownerJid, { text: header });
-              await sock.sendMessage(ownerJid, { forward: capturedDeleted, force: true } as Parameters<typeof sock.sendMessage>[1]);
+              await safeSend(sock, ownerJid, { text: header });
+              await safeSend(sock, ownerJid, { forward: capturedDeleted, force: true } as Parameters<typeof sock.sendMessage>[1]);
             } else {
-              await sock.sendMessage(ownerJid, { text: `${header}\n\n📎 (media/unsupported message type)` });
+              await safeSend(sock, ownerJid, { text: `${header}\n\n📎 (media/unsupported message type)` });
             }
             logger.info({ from: senderNum, jid: srcJid }, "🗑 Antidelete: forwarded deleted message to owner");
           });
@@ -396,7 +408,23 @@ async function connectBot(sessionAuth: {
       cacheMessage(msg);
 
       // ── Command handler — enqueued per-JID for back-pressure ─────────────
-      enqueueForJid(jid, "handleMessage", () => handleMessage(sock, msg));
+      // 10 s inner timeout: if handleMessage hangs (slow API, stuck sendMessage)
+      // it times out and the queue for this JID moves on immediately.
+      // Duration is logged so slow paths are visible in Heroku logs.
+      const _capturedMsg = msg;
+      enqueueForJid(jid, "handleMessage", async () => {
+        const _start = Date.now();
+        try {
+          await Promise.race([
+            handleMessage(sock, _capturedMsg),
+            new Promise<void>((_, reject) =>
+              setTimeout(() => reject(new Error("handleMessage timeout (10s)")), 10_000)
+            ),
+          ]);
+        } finally {
+          logger.info({ duration: Date.now() - _start, jid }, "⏱ handleMessage duration");
+        }
+      });
     }
   });
 
@@ -441,7 +469,7 @@ async function connectBot(sessionAuth: {
       if (call.status !== "offer") continue;
       try {
         await sock.rejectCall(call.id, call.from);
-        await sock.sendMessage(call.from, { text: "🚫Calls are not allowed" });
+        await safeSend(sock, call.from, { text: "🚫Calls are not allowed" });
         logger.info({ from: call.from, callId: call.id }, "📵 Auto-rejected incoming call");
       } catch (err) {
         logger.warn({ err, from: call.from }, "Failed to reject call");

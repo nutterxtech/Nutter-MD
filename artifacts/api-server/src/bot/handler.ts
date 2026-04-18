@@ -2,6 +2,9 @@ import type { WASocket, WAMessageKey, proto } from "@whiskeysockets/baileys";
 import type { GroupSettings } from "./store";
 import { getGroupSettings, getUserSettings, getBotSettings, updateBotSettings, resolveLid } from "./store";
 import { logger } from "../lib/logger";
+import { safeSend } from "./utils";
+
+export { safeSend };
 import {
   handlePing,
   handleAlive,
@@ -172,7 +175,7 @@ export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessage
       // so WhatsApp records it as an emoji receipt on their status update.
       // The react key MUST keep remoteJid = "status@broadcast" so WhatsApp
       // registers the emoji as a receipt on the status update, not a DM reaction.
-      await sock.sendMessage(msg.key.participant, {
+      await safeSend(sock, msg.key.participant, {
         react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } },
       });
     } catch {}
@@ -268,28 +271,28 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
       const msgKey = msg.key as WAMessageKey;
       if (groupSettings) {
         if (groupSettings.antilink && !isOwner && !isSenderGroupAdmin && URL_REGEX.test(body)) {
-          await sock.sendMessage(jid, { delete: msgKey });
-          await sock.sendMessage(jid, { text: "Links are not allowed in this group." });
+          await safeSend(sock, jid, { delete: msgKey });
+          await safeSend(sock, jid, { text: "Links are not allowed in this group." });
           return;
         }
         const badWordList = groupSettings.customBadWords
           ? groupSettings.customBadWords.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean)
           : DEFAULT_BAD_WORDS;
         if (groupSettings.antibadword !== "off" && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
-          await sock.sendMessage(jid, { delete: msgKey });
+          await safeSend(sock, jid, { delete: msgKey });
           if (groupSettings.antibadword === "kick") {
             await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
-            await sock.sendMessage(jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
+            await safeSend(sock, jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
           } else {
-            await sock.sendMessage(jid, { text: "Bad language is not allowed." });
+            await safeSend(sock, jid, { text: "Bad language is not allowed." });
           }
           return;
         }
         if (groupSettings.antimention && !isOwner && !isSenderGroupAdmin) {
           const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
           if (mentions.length >= 5) {
-            await sock.sendMessage(jid, { delete: msgKey });
-            await sock.sendMessage(jid, { text: "Mass mentions are not allowed." });
+            await safeSend(sock, jid, { delete: msgKey });
+            await safeSend(sock, jid, { text: "Mass mentions are not allowed." });
             return;
           }
         }
@@ -320,7 +323,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
           bodyLower.includes(trigger.toLowerCase())
         );
         if (matched) {
-          await sock.sendMessage(jid, { text: matched[1] });
+          await safeSend(sock, jid, { text: matched[1] });
         }
       } catch {
         // skip auto-reply if parsing fails
@@ -342,7 +345,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
 
   const userSettings = getUserSettings(senderJid);
   if (userSettings?.isBanned && !isOwner) {
-    await sock.sendMessage(replyJid, { text: "You are banned from using this bot." });
+    await safeSend(sock, replyJid, { text: "You are banned from using this bot." });
     return;
   }
 
@@ -370,41 +373,41 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     // ── Bot status settings (owner only) ─────────────────────────────────────
     case "autoviewstatus":
     case "autoview": {
-      if (!isOwner) { await sock.sendMessage(jid, { text: "🚫 Only owner command" }); return; }
+      if (!isOwner) { await safeSend(sock, jid, { text: "🚫 Only owner command" }); return; }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
-        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}\nUsage: ${prefix}autoviewstatus on/off` });
+        await safeSend(sock, jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}\nUsage: ${prefix}autoviewstatus on/off` });
         return;
       }
       const enabled = val === "true" || val === "on";
       updateBotSettings({ autoViewStatus: enabled });
-      await sock.sendMessage(jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
+      await safeSend(sock, jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
       return;
     }
 
     case "autolikestatus":
     case "autolike": {
-      if (!isOwner) { await sock.sendMessage(jid, { text: "🚫 Only owner command" }); return; }
+      if (!isOwner) { await safeSend(sock, jid, { text: "🚫 Only owner command" }); return; }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
-        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}\nUsage: ${prefix}autolikestatus on/off` });
+        await safeSend(sock, jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}\nUsage: ${prefix}autolikestatus on/off` });
         return;
       }
       const enabled = val === "true" || val === "on";
       updateBotSettings({ autoLikeStatus: enabled });
-      await sock.sendMessage(jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
+      await safeSend(sock, jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
       return;
     }
 
     case "statusemoji": {
-      if (!isOwner) { await sock.sendMessage(jid, { text: "🚫 Only owner command" }); return; }
+      if (!isOwner) { await safeSend(sock, jid, { text: "🚫 Only owner command" }); return; }
       const emoji = args.join(" ").trim();
       if (!emoji) {
-        await sock.sendMessage(jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}\nUsage: ${prefix}statusemoji ❤️,🔥,😍` });
+        await safeSend(sock, jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}\nUsage: ${prefix}statusemoji ❤️,🔥,😍` });
         return;
       }
       updateBotSettings({ statusLikeEmoji: emoji });
-      await sock.sendMessage(jid, { text: `Status like emoji set to: *${emoji}*` });
+      await safeSend(sock, jid, { text: `Status like emoji set to: *${emoji}*` });
       return;
     }
 
@@ -456,7 +459,7 @@ export async function handleGroupParticipantsUpdate(
         .replace(/\{name\}/gi, name)
         .replace(/\{group\}/gi, groupMeta.subject);
 
-      await sock.sendMessage(groupId, {
+      await safeSend(sock, groupId, {
         text: welcomeText,
         mentions: [participantJid],
       });

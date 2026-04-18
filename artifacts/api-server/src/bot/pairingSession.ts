@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { Boom } from "@hapi/boom";
 import { logger } from "../lib/logger";
 import { encodeSessionToBase64, type SessionFileMap } from "./session";
+import { safeSend } from "./utils";
 
 export type PairingStatus =
   | "idle"
@@ -175,7 +176,7 @@ export async function startPairingSession(
       // Step 1: Send "linked" notification — establishes the Signal DM session
       // and tells the user to wait while group keys are being collected.
       try {
-        await sock.sendMessage(jid, {
+        await safeSend(sock, jid, {
           text: `*NUTTER-XMD* is now linked! ✅\n\n⏳ Generating your session ID...`,
         });
         logger.info({ jid }, "Sent 'linked' notification — entering key-settling phase");
@@ -247,14 +248,14 @@ export async function startPairingSession(
       // Step 4: Send the SESSION_ID (or an error) to the user.
       if (sessionId) {
         try {
-          await sock.sendMessage(jid, { text: sessionId });
+          await safeSend(sock, jid, { text: sessionId });
           logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM");
         } catch (err) {
           logger.error({ err }, "Failed to send SESSION_ID to user DM");
         }
       } else {
         try {
-          await sock.sendMessage(jid, {
+          await safeSend(sock, jid, {
             text: "⚠️ Failed to generate SESSION_ID. Please try pairing again.",
           });
         } catch { /* best-effort */ }
@@ -409,7 +410,7 @@ export async function startQrSession(attempt = 0): Promise<void> {
       // and sets expectations for the user about the wait time.
       if (jid) {
         try {
-          await sock.sendMessage(jid, {
+          await safeSend(sock, jid, {
             text: `*NUTTER-XMD* is now linked! ✅\n\n⏳ Generating your session ID...`,
           });
           logger.info({ jid }, "Sent 'linked' notification — entering key-settling phase");
@@ -480,14 +481,14 @@ export async function startQrSession(attempt = 0): Promise<void> {
       if (jid) {
         if (sessionId) {
           try {
-            await sock.sendMessage(jid, { text: sessionId });
+            await safeSend(sock, jid, { text: sessionId });
             logger.info({ jid }, "SESSION_ID sent to user WhatsApp DM");
           } catch (err) {
             logger.error({ err }, "Failed to send SESSION_ID to user DM");
           }
         } else {
           try {
-            await sock.sendMessage(jid, {
+            await safeSend(sock, jid, {
               text: "⚠️ Failed to generate SESSION_ID. Please try pairing again.",
             });
           } catch { /* best-effort */ }

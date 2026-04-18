@@ -2,114 +2,115 @@ import type { WASocket, proto } from "@whiskeysockets/baileys";
 import type { CommandContext } from "../handler";
 import { ensureGroupSettings, updateGroupSettings, setUserBanned } from "../store";
 import { logger } from "../../lib/logger";
+import { safeSend } from "../utils";
 
 export async function handleKick(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
+    await safeSend(sock, ctx.jid, { text: "This command requires bot admin privileges." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag the user to kick: .kick @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag the user to kick: .kick @user" });
     return;
   }
   try {
     await sock.groupParticipantsUpdate(ctx.jid, mentioned, "remove");
-    await sock.sendMessage(ctx.jid, { text: `Removed ${mentioned.length} member(s).` });
+    await safeSend(sock, ctx.jid, { text: `Removed ${mentioned.length} member(s).` });
   } catch (err) {
     logger.error({ err }, "Failed to kick");
-    await sock.sendMessage(ctx.jid, { text: "Failed to kick. Make sure I am an admin." });
+    await safeSend(sock, ctx.jid, { text: "Failed to kick. Make sure I am an admin." });
   }
 }
 
 export async function handleAdd(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
+    await safeSend(sock, ctx.jid, { text: "This command requires bot admin privileges." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const number = args[0]?.replace(/[^0-9]/g, "");
   if (!number) {
-    await sock.sendMessage(ctx.jid, { text: "Provide number: .add +254712345678" });
+    await safeSend(sock, ctx.jid, { text: "Provide number: .add +254712345678" });
     return;
   }
   const memberJid = number + "@s.whatsapp.net";
   try {
     await sock.groupParticipantsUpdate(ctx.jid, [memberJid], "add");
-    await sock.sendMessage(ctx.jid, { text: `Added ${number} to the group.` });
+    await safeSend(sock, ctx.jid, { text: `Added ${number} to the group.` });
   } catch (err) {
     logger.error({ err }, "Failed to add");
-    await sock.sendMessage(ctx.jid, { text: "Failed to add. The number may not be on WhatsApp." });
+    await safeSend(sock, ctx.jid, { text: "Failed to add. The number may not be on WhatsApp." });
   }
 }
 
 export async function handlePromote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges for this." });
+    await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .promote @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .promote @user" });
     return;
   }
   await sock.groupParticipantsUpdate(ctx.jid, mentioned, "promote");
-  await sock.sendMessage(ctx.jid, { text: "Promoted successfully." });
+  await safeSend(sock, ctx.jid, { text: "Promoted successfully." });
 }
 
 export async function handleDemote(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges for this." });
+    await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .demote @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .demote @user" });
     return;
   }
   await sock.groupParticipantsUpdate(ctx.jid, mentioned, "demote");
-  await sock.sendMessage(ctx.jid, { text: "Demoted successfully." });
+  await safeSend(sock, ctx.jid, { text: "Demoted successfully." });
 }
 
 export async function handleAntilink(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: "Usage: .antilink on | .antilink off" });
+    await safeSend(sock, ctx.jid, { text: "Usage: .antilink on | .antilink off" });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { antilink: state });
-  await sock.sendMessage(ctx.jid, { text: `Antilink is now ${state ? "ON" : "OFF"}.` });
+  await safeSend(sock, ctx.jid, { text: `Antilink is now ${state ? "ON" : "OFF"}.` });
 }
 
 export async function handleAntibadword(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   const VALID = ["on", "true", "delete", "kick", "off", "false"];
   if (!raw || !VALID.includes(raw)) {
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text:
         `Usage:\n` +
         `.antibadword delete — Delete bad messages\n` +
@@ -125,21 +126,21 @@ export async function handleAntibadword(sock: WASocket, _msg: proto.IWebMessageI
   else mode = "delete";
   updateGroupSettings(ctx.jid, { antibadword: mode });
   const label = mode === "off" ? "OFF" : mode === "kick" ? "ON — Delete + Kick" : "ON — Delete only";
-  await sock.sendMessage(ctx.jid, { text: `Antibadword is now *${label}*.` });
+  await safeSend(sock, ctx.jid, { text: `Antibadword is now *${label}*.` });
 }
 
 export async function handleSetBadWords(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   if (!ctx.isGroup) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in a group." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in a group." });
     return;
   }
   if (args[0]?.toLowerCase() === "reset") {
     updateGroupSettings(ctx.jid, { customBadWords: null });
-    await sock.sendMessage(ctx.jid, { text: "✅ Bad words list reset to default." });
+    await safeSend(sock, ctx.jid, { text: "✅ Bad words list reset to default." });
     return;
   }
   if (args[0]?.toLowerCase() === "list") {
@@ -147,11 +148,11 @@ export async function handleSetBadWords(sock: WASocket, _msg: proto.IWebMessageI
     const list = gs.customBadWords
       ? gs.customBadWords.split(",").map((w) => w.trim()).join(", ")
       : "Using default list";
-    await sock.sendMessage(ctx.jid, { text: `*Bad Words List:*\n${list}` });
+    await safeSend(sock, ctx.jid, { text: `*Bad Words List:*\n${list}` });
     return;
   }
   if (!args.length) {
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text:
         `Usage:\n` +
         `.setbadwords <word1, word2, word3> — Set custom bad words\n` +
@@ -162,101 +163,101 @@ export async function handleSetBadWords(sock: WASocket, _msg: proto.IWebMessageI
   }
   const words = args.join(" ").split(",").map((w) => w.trim().toLowerCase()).filter(Boolean);
   updateGroupSettings(ctx.jid, { customBadWords: words.join(",") });
-  await sock.sendMessage(ctx.jid, { text: `✅ Bad words list updated:\n${words.join(", ")}` });
+  await safeSend(sock, ctx.jid, { text: `✅ Bad words list updated:\n${words.join(", ")}` });
 }
 
 export async function handleAntiDelete(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   if (!ctx.isGroup) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in a group." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in a group." });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
     const current = ensureGroupSettings(ctx.jid).antiDelete;
-    await sock.sendMessage(ctx.jid, { text: `Usage: .antidelete on | .antidelete off\nCurrent: ${current ? "ON" : "OFF"}` });
+    await safeSend(sock, ctx.jid, { text: `Usage: .antidelete on | .antidelete off\nCurrent: ${current ? "ON" : "OFF"}` });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { antiDelete: state });
-  await sock.sendMessage(ctx.jid, { text: `Antidelete is now *${state ? "ON" : "OFF"}*.${state ? "\nDeleted messages will be forwarded to owner's DM." : ""}` });
+  await safeSend(sock, ctx.jid, { text: `Antidelete is now *${state ? "ON" : "OFF"}*.${state ? "\nDeleted messages will be forwarded to owner's DM." : ""}` });
 }
 
 export async function handleAntimention(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: "Usage: .antimention on | .antimention off" });
+    await safeSend(sock, ctx.jid, { text: "Usage: .antimention on | .antimention off" });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { antimention: state });
-  await sock.sendMessage(ctx.jid, { text: `Antimention is now ${state ? "ON" : "OFF"}.` });
+  await safeSend(sock, ctx.jid, { text: `Antimention is now ${state ? "ON" : "OFF"}.` });
 }
 
 export async function handleBan(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .ban @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .ban @user" });
     return;
   }
   for (const userId of mentioned) {
     setUserBanned(userId, true);
   }
-  await sock.sendMessage(ctx.jid, { text: `Banned ${mentioned.length} user(s).` });
+  await safeSend(sock, ctx.jid, { text: `Banned ${mentioned.length} user(s).` });
 }
 
 export async function handleUnban(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .unban @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .unban @user" });
     return;
   }
   for (const userId of mentioned) {
     setUserBanned(userId, false);
   }
-  await sock.sendMessage(ctx.jid, { text: `Unbanned ${mentioned.length} user(s).` });
+  await safeSend(sock, ctx.jid, { text: `Unbanned ${mentioned.length} user(s).` });
 }
 
 export async function handleSetPrefix(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const newPrefix = args[0]?.trim();
   if (!newPrefix || newPrefix.length > 5) {
-    await sock.sendMessage(ctx.jid, { text: "Provide a prefix (1–5 chars): .setprefix !" });
+    await safeSend(sock, ctx.jid, { text: "Provide a prefix (1–5 chars): .setprefix !" });
     return;
   }
   updateGroupSettings(ctx.jid, { customPrefix: newPrefix });
-  await sock.sendMessage(ctx.jid, { text: `Prefix changed to: ${newPrefix}` });
+  await safeSend(sock, ctx.jid, { text: `Prefix changed to: ${newPrefix}` });
 }
 
 export async function handleTagAll(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges for tagall." });
+    await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges for tagall." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   try {
@@ -264,13 +265,13 @@ export async function handleTagAll(sock: WASocket, msg: proto.IWebMessageInfo, c
     const participants = groupMeta.participants.map((p) => p.id);
     const announcement = args.length > 0 ? args.join(" ") : "📢 Attention everyone!";
     const mentions = participants.map((jid) => `@${jid.split("@")[0]}`).join(" ");
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text: `${announcement}\n\n${mentions}`,
       mentions: participants,
     });
   } catch (err) {
     logger.error({ err }, "Failed to tagall");
-    await sock.sendMessage(ctx.jid, { text: "Failed to tag all members." });
+    await safeSend(sock, ctx.jid, { text: "Failed to tag all members." });
   }
 }
 
@@ -301,97 +302,97 @@ export async function handleGroupInfo(sock: WASocket, _msg: proto.IWebMessageInf
       `*Description:* ${groupMeta.desc || "None"}\n` +
       `*Active Protections:* ${protections}`;
 
-    await sock.sendMessage(ctx.jid, { text });
+    await safeSend(sock, ctx.jid, { text });
   } catch (err) {
     logger.error({ err }, "Failed to get group info");
-    await sock.sendMessage(ctx.jid, { text: "Failed to retrieve group info." });
+    await safeSend(sock, ctx.jid, { text: "Failed to retrieve group info." });
   }
 }
 
 export async function handleMute(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges to mute." });
+    await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges to mute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   try {
     await sock.groupSettingUpdate(ctx.jid, "announcement");
     updateGroupSettings(ctx.jid, { mute: true });
-    await sock.sendMessage(ctx.jid, { text: "🔇 Group muted. Only admins can send messages." });
+    await safeSend(sock, ctx.jid, { text: "🔇 Group muted. Only admins can send messages." });
   } catch (err) {
     logger.error({ err }, "Failed to mute group");
-    await sock.sendMessage(ctx.jid, { text: "Failed to mute group." });
+    await safeSend(sock, ctx.jid, { text: "Failed to mute group." });
   }
 }
 
 export async function handleUnmute(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 I need admin privileges to unmute." });
+    await safeSend(sock, ctx.jid, { text: "🚫 I need admin privileges to unmute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   try {
     await sock.groupSettingUpdate(ctx.jid, "not_announcement");
     updateGroupSettings(ctx.jid, { mute: false });
-    await sock.sendMessage(ctx.jid, { text: "🔊 Group unmuted. All members can send messages." });
+    await safeSend(sock, ctx.jid, { text: "🔊 Group unmuted. All members can send messages." });
   } catch (err) {
     logger.error({ err }, "Failed to unmute group");
-    await sock.sendMessage(ctx.jid, { text: "Failed to unmute group." });
+    await safeSend(sock, ctx.jid, { text: "Failed to unmute group." });
   }
 }
 
 export async function handleWelcome(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}welcome on | ${ctx.prefix}welcome off` });
+    await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}welcome on | ${ctx.prefix}welcome off` });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { welcomeEnabled: state });
-  await sock.sendMessage(ctx.jid, {
+  await safeSend(sock, ctx.jid, {
     text: `Welcome messages are now ${state ? "ON" : "OFF"}.${state ? `\n\nUse ${ctx.prefix}setwelcome <message> to set a custom message. Use {name} as placeholder for the new member's name.` : ""}`,
   });
 }
 
 export async function handleSetWelcome(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
   const message = args.join(" ").trim();
   if (!message) {
-    await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}setwelcome Welcome to the group, {name}! 🎉` });
+    await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}setwelcome Welcome to the group, {name}! 🎉` });
     return;
   }
   updateGroupSettings(ctx.jid, { welcomeMessage: message });
-  await sock.sendMessage(ctx.jid, { text: `Welcome message set:\n\n${message}` });
+  await safeSend(sock, ctx.jid, { text: `Welcome message set:\n\n${message}` });
 }
 
 export async function handleAutoReply(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, args: string[]) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "🚫 Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "🚫 Group admins only" });
     return;
   }
 
@@ -407,11 +408,11 @@ export async function handleAutoReply(sock: WASocket, _msg: proto.IWebMessageInf
   if (subCmd === "list") {
     const entries = Object.entries(autoReplyMap);
     if (entries.length === 0) {
-      await sock.sendMessage(ctx.jid, { text: "No auto-replies configured for this group." });
+      await safeSend(sock, ctx.jid, { text: "No auto-replies configured for this group." });
       return;
     }
     const list = entries.map(([k, v]) => `*${k}* → ${v}`).join("\n");
-    await sock.sendMessage(ctx.jid, { text: `*Auto-replies:*\n\n${list}` });
+    await safeSend(sock, ctx.jid, { text: `*Auto-replies:*\n\n${list}` });
     return;
   }
 
@@ -419,38 +420,38 @@ export async function handleAutoReply(sock: WASocket, _msg: proto.IWebMessageInf
     const rest = args.slice(1).join(" ");
     const separatorIdx = rest.indexOf("|");
     if (separatorIdx === -1) {
-      await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}autoreply add <trigger> | <response>` });
+      await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}autoreply add <trigger> | <response>` });
       return;
     }
     const trigger = rest.slice(0, separatorIdx).trim().toLowerCase();
     const response = rest.slice(separatorIdx + 1).trim();
     if (!trigger || !response) {
-      await sock.sendMessage(ctx.jid, { text: "Trigger and response cannot be empty." });
+      await safeSend(sock, ctx.jid, { text: "Trigger and response cannot be empty." });
       return;
     }
     autoReplyMap[trigger] = response;
     updateGroupSettings(ctx.jid, { autoReply: JSON.stringify(autoReplyMap) });
-    await sock.sendMessage(ctx.jid, { text: `Auto-reply added:\n*${trigger}* → ${response}` });
+    await safeSend(sock, ctx.jid, { text: `Auto-reply added:\n*${trigger}* → ${response}` });
     return;
   }
 
   if (subCmd === "remove") {
     const trigger = args.slice(1).join(" ").trim().toLowerCase();
     if (!trigger) {
-      await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}autoreply remove <trigger>` });
+      await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}autoreply remove <trigger>` });
       return;
     }
     if (!autoReplyMap[trigger]) {
-      await sock.sendMessage(ctx.jid, { text: `No auto-reply found for: ${trigger}` });
+      await safeSend(sock, ctx.jid, { text: `No auto-reply found for: ${trigger}` });
       return;
     }
     delete autoReplyMap[trigger];
     updateGroupSettings(ctx.jid, { autoReply: JSON.stringify(autoReplyMap) });
-    await sock.sendMessage(ctx.jid, { text: `Auto-reply removed: ${trigger}` });
+    await safeSend(sock, ctx.jid, { text: `Auto-reply removed: ${trigger}` });
     return;
   }
 
-  await sock.sendMessage(ctx.jid, {
+  await safeSend(sock, ctx.jid, {
     text: `Usage:\n${ctx.prefix}autoreply add <trigger> | <response>\n${ctx.prefix}autoreply remove <trigger>\n${ctx.prefix}autoreply list`,
   });
 }

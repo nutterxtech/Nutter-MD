@@ -5236,6 +5236,16 @@ function resolveLid(jid) {
   return lidToJidMap.get(jid) ?? jid;
 }
 
+// src/bot/utils.ts
+async function safeSend(sock, jid, content, options) {
+  return Promise.race([
+    sock.sendMessage(jid, content, options),
+    new Promise(
+      (_, reject) => setTimeout(() => reject(new Error(`safeSend timeout \u2192 ${jid}`)), 8e3)
+    )
+  ]);
+}
+
 // src/bot/commands/general.ts
 import fs2 from "fs";
 import path2 from "path";
@@ -5323,9 +5333,9 @@ ${rows}
 }
 async function handlePing(sock, msg, ctx) {
   const start = Date.now();
-  await sock.sendMessage(ctx.jid, { text: "\u{1F3D3} Measuring..." }, { quoted: msg });
+  await safeSend(sock, ctx.jid, { text: "\u{1F3D3} Measuring..." }, { quoted: msg });
   const latency = Date.now() - start;
-  await sock.sendMessage(ctx.jid, { text: `\u{1F3D3} *Pong!*
+  await safeSend(sock, ctx.jid, { text: `\u{1F3D3} *Pong!*
 *Latency:* ${latency}ms` }, { quoted: msg });
 }
 async function handleAlive(sock, _msg, ctx) {
@@ -5338,7 +5348,7 @@ async function handleAlive(sock, _msg, ctx) {
 *Status:* Online
 *Uptime:* ${hours}h ${minutes}m ${seconds}s
 *Version:* 9.1.3`;
-  await sock.sendMessage(ctx.jid, { text });
+  await safeSend(sock, ctx.jid, { text });
 }
 async function handleMenu(sock, msg, ctx, prefix) {
   const senderJid = msg.key.participant || (msg.key.fromMe ? sock.user?.id || "" : msg.key.remoteJid || "");
@@ -5348,7 +5358,8 @@ async function handleMenu(sock, msg, ctx, prefix) {
 ` + buildMenuText(prefix, pushName);
   const imgBuf = getMenuImageBuffer();
   if (imgBuf) {
-    await sock.sendMessage(
+    await safeSend(
+      sock,
       ctx.jid,
       {
         image: imgBuf,
@@ -5360,7 +5371,8 @@ async function handleMenu(sock, msg, ctx, prefix) {
     );
   } else {
     logger.warn("Menu image not found \u2014 sending text only");
-    await sock.sendMessage(
+    await safeSend(
+      sock,
       ctx.jid,
       { text: menuText, mentions: [senderJid] },
       { quoted: msg }
@@ -5370,11 +5382,11 @@ async function handleMenu(sock, msg, ctx, prefix) {
 async function handleOwner(sock, _msg, ctx) {
   const ownerNumber = process.env["OWNER_NUMBER"] || "";
   if (!ownerNumber) {
-    await sock.sendMessage(ctx.jid, { text: "Owner number not configured." });
+    await safeSend(sock, ctx.jid, { text: "Owner number not configured." });
     return;
   }
   const digits = ownerNumber.replace(/[^0-9]/g, "");
-  await sock.sendMessage(ctx.jid, {
+  await safeSend(sock, ctx.jid, {
     contacts: {
       displayName: "NUTTER-XMD Owner",
       contacts: [{ vcard: `BEGIN:VCARD
@@ -5417,7 +5429,7 @@ Custom Prefix: ${s.customPrefix || prefix}
 Welcome Messages: ${s.welcomeEnabled ? "ON" : "OFF"}
 Welcome Text: ${s.welcomeMessage || "Default"}`;
   }
-  await sock.sendMessage(ctx.jid, { text: botInfo + groupInfo });
+  await safeSend(sock, ctx.jid, { text: botInfo + groupInfo });
 }
 async function downloadToBuffer(mediaMsg, type) {
   const { downloadContentFromMessage } = await import("@whiskeysockets/baileys");
@@ -5470,13 +5482,13 @@ async function extractVideoFirstFrame(videoBuffer) {
 async function handleSticker(sock, msg, ctx) {
   const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
   if (!quoted) {
-    await sock.sendMessage(ctx.jid, { text: "Reply to an image or video with .sticker to convert it to a sticker." });
+    await safeSend(sock, ctx.jid, { text: "Reply to an image or video with .sticker to convert it to a sticker." });
     return;
   }
   const imageMsg = quoted.imageMessage;
   const videoMsg = quoted.videoMessage;
   if (!imageMsg && !videoMsg) {
-    await sock.sendMessage(ctx.jid, { text: "Only images and short videos can be converted to stickers. Reply to an image or video." });
+    await safeSend(sock, ctx.jid, { text: "Only images and short videos can be converted to stickers. Reply to an image or video." });
     return;
   }
   try {
@@ -5489,38 +5501,38 @@ async function handleSticker(sock, msg, ctx) {
       sourceBuffer = await extractVideoFirstFrame(sourceBuffer);
     }
     if (!sourceBuffer || sourceBuffer.length === 0) {
-      await sock.sendMessage(ctx.jid, { text: "Could not download the media. Please try again." });
+      await safeSend(sock, ctx.jid, { text: "Could not download the media. Please try again." });
       return;
     }
     const webpBuffer = await sharp(sourceBuffer).resize(512, 512, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 80 }).toBuffer();
-    await sock.sendMessage(ctx.jid, { sticker: webpBuffer });
+    await safeSend(sock, ctx.jid, { sticker: webpBuffer });
   } catch (err) {
     logger.error({ err }, "Sticker conversion failed");
     const isNoFfmpeg = err instanceof Error && err.message === "FFMPEG_NOT_FOUND";
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text: isNoFfmpeg ? "Video stickers are not supported on this server (ffmpeg not installed). Try sending an image instead." : "Sticker conversion failed. Please try again."
     });
   }
 }
 async function handleRestart(sock, _msg, ctx) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Only owner command" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Only owner command" });
     return;
   }
-  await sock.sendMessage(ctx.jid, { text: "Restarting..." });
+  await safeSend(sock, ctx.jid, { text: "Restarting..." });
   setTimeout(() => process.exit(0), 1e3);
 }
 async function handleRefreshSession(sock, _msg, ctx) {
   if (!ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Only owner command" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Only owner command" });
     return;
   }
   const sessionDir = getActiveBotSessionDir();
   if (!sessionDir) {
-    await sock.sendMessage(ctx.jid, { text: "\u26A0\uFE0F Session directory not found. Bot may not be fully initialized." });
+    await safeSend(sock, ctx.jid, { text: "\u26A0\uFE0F Session directory not found. Bot may not be fully initialized." });
     return;
   }
-  await sock.sendMessage(ctx.jid, { text: "\u23F3 Reading live session files and building new SESSION_ID \u2014 please wait..." });
+  await safeSend(sock, ctx.jid, { text: "\u23F3 Reading live session files and building new SESSION_ID \u2014 please wait..." });
   try {
     const files = fs2.readdirSync(sessionDir);
     const fileMap = {};
@@ -5534,8 +5546,8 @@ async function handleRefreshSession(sock, _msg, ctx) {
     const senderKeyCount = files.filter((f) => f.startsWith("sender-key-") && f !== "sender-key-memory.json").length;
     const totalKb = Buffer.byteLength(JSON.stringify(fileMap)) / 1024;
     const newSessionId = await encodeSessionToBase64(fileMap);
-    await sock.sendMessage(ctx.jid, { text: newSessionId });
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, { text: newSessionId });
+    await safeSend(sock, ctx.jid, {
       text: `\u2705 *New SESSION_ID generated!*
 
 \u{1F4CA} *Stats:*
@@ -5548,113 +5560,113 @@ After that, all commands (DM + groups) will respond instantly.`
     });
   } catch (err) {
     logger.error({ err }, "handleRefreshSession failed");
-    await sock.sendMessage(ctx.jid, { text: "\u274C Failed to generate SESSION_ID. Check server logs." });
+    await safeSend(sock, ctx.jid, { text: "\u274C Failed to generate SESSION_ID. Check server logs." });
   }
 }
 
 // src/bot/commands/group.ts
 async function handleKick(sock, msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
+    await safeSend(sock, ctx.jid, { text: "This command requires bot admin privileges." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag the user to kick: .kick @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag the user to kick: .kick @user" });
     return;
   }
   try {
     await sock.groupParticipantsUpdate(ctx.jid, mentioned, "remove");
-    await sock.sendMessage(ctx.jid, { text: `Removed ${mentioned.length} member(s).` });
+    await safeSend(sock, ctx.jid, { text: `Removed ${mentioned.length} member(s).` });
   } catch (err) {
     logger.error({ err }, "Failed to kick");
-    await sock.sendMessage(ctx.jid, { text: "Failed to kick. Make sure I am an admin." });
+    await safeSend(sock, ctx.jid, { text: "Failed to kick. Make sure I am an admin." });
   }
 }
 async function handleAdd(sock, _msg, ctx, args) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "This command requires bot admin privileges." });
+    await safeSend(sock, ctx.jid, { text: "This command requires bot admin privileges." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const number = args[0]?.replace(/[^0-9]/g, "");
   if (!number) {
-    await sock.sendMessage(ctx.jid, { text: "Provide number: .add +254712345678" });
+    await safeSend(sock, ctx.jid, { text: "Provide number: .add +254712345678" });
     return;
   }
   const memberJid = number + "@s.whatsapp.net";
   try {
     await sock.groupParticipantsUpdate(ctx.jid, [memberJid], "add");
-    await sock.sendMessage(ctx.jid, { text: `Added ${number} to the group.` });
+    await safeSend(sock, ctx.jid, { text: `Added ${number} to the group.` });
   } catch (err) {
     logger.error({ err }, "Failed to add");
-    await sock.sendMessage(ctx.jid, { text: "Failed to add. The number may not be on WhatsApp." });
+    await safeSend(sock, ctx.jid, { text: "Failed to add. The number may not be on WhatsApp." });
   }
 }
 async function handlePromote(sock, msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges for this." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .promote @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .promote @user" });
     return;
   }
   await sock.groupParticipantsUpdate(ctx.jid, mentioned, "promote");
-  await sock.sendMessage(ctx.jid, { text: "Promoted successfully." });
+  await safeSend(sock, ctx.jid, { text: "Promoted successfully." });
 }
 async function handleDemote(sock, msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges for this." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} I need admin privileges for this." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .demote @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .demote @user" });
     return;
   }
   await sock.groupParticipantsUpdate(ctx.jid, mentioned, "demote");
-  await sock.sendMessage(ctx.jid, { text: "Demoted successfully." });
+  await safeSend(sock, ctx.jid, { text: "Demoted successfully." });
 }
 async function handleAntilink(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: "Usage: .antilink on | .antilink off" });
+    await safeSend(sock, ctx.jid, { text: "Usage: .antilink on | .antilink off" });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { antilink: state });
-  await sock.sendMessage(ctx.jid, { text: `Antilink is now ${state ? "ON" : "OFF"}.` });
+  await safeSend(sock, ctx.jid, { text: `Antilink is now ${state ? "ON" : "OFF"}.` });
 }
 async function handleAntibadword(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   const VALID = ["on", "true", "delete", "kick", "off", "false"];
   if (!raw || !VALID.includes(raw)) {
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text: `Usage:
 .antibadword delete \u2014 Delete bad messages
 .antibadword kick   \u2014 Delete + kick the sender
@@ -5670,31 +5682,31 @@ Current: ${ensureGroupSettings(ctx.jid).antibadword}`
   else mode = "delete";
   updateGroupSettings(ctx.jid, { antibadword: mode });
   const label = mode === "off" ? "OFF" : mode === "kick" ? "ON \u2014 Delete + Kick" : "ON \u2014 Delete only";
-  await sock.sendMessage(ctx.jid, { text: `Antibadword is now *${label}*.` });
+  await safeSend(sock, ctx.jid, { text: `Antibadword is now *${label}*.` });
 }
 async function handleSetBadWords(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   if (!ctx.isGroup) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in a group." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in a group." });
     return;
   }
   if (args[0]?.toLowerCase() === "reset") {
     updateGroupSettings(ctx.jid, { customBadWords: null });
-    await sock.sendMessage(ctx.jid, { text: "\u2705 Bad words list reset to default." });
+    await safeSend(sock, ctx.jid, { text: "\u2705 Bad words list reset to default." });
     return;
   }
   if (args[0]?.toLowerCase() === "list") {
     const gs = ensureGroupSettings(ctx.jid);
     const list = gs.customBadWords ? gs.customBadWords.split(",").map((w) => w.trim()).join(", ") : "Using default list";
-    await sock.sendMessage(ctx.jid, { text: `*Bad Words List:*
+    await safeSend(sock, ctx.jid, { text: `*Bad Words List:*
 ${list}` });
     return;
   }
   if (!args.length) {
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text: `Usage:
 .setbadwords <word1, word2, word3> \u2014 Set custom bad words
 .setbadwords list \u2014 Show current list
@@ -5704,97 +5716,97 @@ ${list}` });
   }
   const words = args.join(" ").split(",").map((w) => w.trim().toLowerCase()).filter(Boolean);
   updateGroupSettings(ctx.jid, { customBadWords: words.join(",") });
-  await sock.sendMessage(ctx.jid, { text: `\u2705 Bad words list updated:
+  await safeSend(sock, ctx.jid, { text: `\u2705 Bad words list updated:
 ${words.join(", ")}` });
 }
 async function handleAntiDelete(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   if (!ctx.isGroup) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in a group." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in a group." });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
     const current = ensureGroupSettings(ctx.jid).antiDelete;
-    await sock.sendMessage(ctx.jid, { text: `Usage: .antidelete on | .antidelete off
+    await safeSend(sock, ctx.jid, { text: `Usage: .antidelete on | .antidelete off
 Current: ${current ? "ON" : "OFF"}` });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { antiDelete: state });
-  await sock.sendMessage(ctx.jid, { text: `Antidelete is now *${state ? "ON" : "OFF"}*.${state ? "\nDeleted messages will be forwarded to owner's DM." : ""}` });
+  await safeSend(sock, ctx.jid, { text: `Antidelete is now *${state ? "ON" : "OFF"}*.${state ? "\nDeleted messages will be forwarded to owner's DM." : ""}` });
 }
 async function handleAntimention(sock, _msg, ctx, args) {
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: "Usage: .antimention on | .antimention off" });
+    await safeSend(sock, ctx.jid, { text: "Usage: .antimention on | .antimention off" });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { antimention: state });
-  await sock.sendMessage(ctx.jid, { text: `Antimention is now ${state ? "ON" : "OFF"}.` });
+  await safeSend(sock, ctx.jid, { text: `Antimention is now ${state ? "ON" : "OFF"}.` });
 }
 async function handleBan(sock, msg, ctx) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .ban @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .ban @user" });
     return;
   }
   for (const userId of mentioned) {
     setUserBanned(userId, true);
   }
-  await sock.sendMessage(ctx.jid, { text: `Banned ${mentioned.length} user(s).` });
+  await safeSend(sock, ctx.jid, { text: `Banned ${mentioned.length} user(s).` });
 }
 async function handleUnban(sock, msg, ctx) {
   if (!ctx.isOwner && !ctx.isSenderGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
-    await sock.sendMessage(ctx.jid, { text: "Tag a user: .unban @user" });
+    await safeSend(sock, ctx.jid, { text: "Tag a user: .unban @user" });
     return;
   }
   for (const userId of mentioned) {
     setUserBanned(userId, false);
   }
-  await sock.sendMessage(ctx.jid, { text: `Unbanned ${mentioned.length} user(s).` });
+  await safeSend(sock, ctx.jid, { text: `Unbanned ${mentioned.length} user(s).` });
 }
 async function handleSetPrefix(sock, _msg, ctx, args) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const newPrefix = args[0]?.trim();
   if (!newPrefix || newPrefix.length > 5) {
-    await sock.sendMessage(ctx.jid, { text: "Provide a prefix (1\u20135 chars): .setprefix !" });
+    await safeSend(sock, ctx.jid, { text: "Provide a prefix (1\u20135 chars): .setprefix !" });
     return;
   }
   updateGroupSettings(ctx.jid, { customPrefix: newPrefix });
-  await sock.sendMessage(ctx.jid, { text: `Prefix changed to: ${newPrefix}` });
+  await safeSend(sock, ctx.jid, { text: `Prefix changed to: ${newPrefix}` });
 }
 async function handleTagAll(sock, msg, ctx, args) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges for tagall." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} I need admin privileges for tagall." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   try {
@@ -5802,7 +5814,7 @@ async function handleTagAll(sock, msg, ctx, args) {
     const participants = groupMeta.participants.map((p) => p.id);
     const announcement = args.length > 0 ? args.join(" ") : "\u{1F4E2} Attention everyone!";
     const mentions = participants.map((jid) => `@${jid.split("@")[0]}`).join(" ");
-    await sock.sendMessage(ctx.jid, {
+    await safeSend(sock, ctx.jid, {
       text: `${announcement}
 
 ${mentions}`,
@@ -5810,7 +5822,7 @@ ${mentions}`,
     });
   } catch (err) {
     logger.error({ err }, "Failed to tagall");
-    await sock.sendMessage(ctx.jid, { text: "Failed to tag all members." });
+    await safeSend(sock, ctx.jid, { text: "Failed to tag all members." });
   }
 }
 async function handleGroupInfo(sock, _msg, ctx) {
@@ -5835,65 +5847,65 @@ async function handleGroupInfo(sock, _msg, ctx) {
 *Created:* ${createdAt}
 *Description:* ${groupMeta.desc || "None"}
 *Active Protections:* ${protections}`;
-    await sock.sendMessage(ctx.jid, { text });
+    await safeSend(sock, ctx.jid, { text });
   } catch (err) {
     logger.error({ err }, "Failed to get group info");
-    await sock.sendMessage(ctx.jid, { text: "Failed to retrieve group info." });
+    await safeSend(sock, ctx.jid, { text: "Failed to retrieve group info." });
   }
 }
 async function handleMute(sock, _msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges to mute." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} I need admin privileges to mute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   try {
     await sock.groupSettingUpdate(ctx.jid, "announcement");
     updateGroupSettings(ctx.jid, { mute: true });
-    await sock.sendMessage(ctx.jid, { text: "\u{1F507} Group muted. Only admins can send messages." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F507} Group muted. Only admins can send messages." });
   } catch (err) {
     logger.error({ err }, "Failed to mute group");
-    await sock.sendMessage(ctx.jid, { text: "Failed to mute group." });
+    await safeSend(sock, ctx.jid, { text: "Failed to mute group." });
   }
 }
 async function handleUnmute(sock, _msg, ctx) {
   if (!ctx.isBotGroupAdmin) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} I need admin privileges to unmute." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} I need admin privileges to unmute." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   try {
     await sock.groupSettingUpdate(ctx.jid, "not_announcement");
     updateGroupSettings(ctx.jid, { mute: false });
-    await sock.sendMessage(ctx.jid, { text: "\u{1F50A} Group unmuted. All members can send messages." });
+    await safeSend(sock, ctx.jid, { text: "\u{1F50A} Group unmuted. All members can send messages." });
   } catch (err) {
     logger.error({ err }, "Failed to unmute group");
-    await sock.sendMessage(ctx.jid, { text: "Failed to unmute group." });
+    await safeSend(sock, ctx.jid, { text: "Failed to unmute group." });
   }
 }
 async function handleWelcome(sock, _msg, ctx, args) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const raw = args[0]?.toLowerCase();
   if (raw !== "on" && raw !== "off") {
-    await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}welcome on | ${ctx.prefix}welcome off` });
+    await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}welcome on | ${ctx.prefix}welcome off` });
     return;
   }
   const state = raw === "on";
   updateGroupSettings(ctx.jid, { welcomeEnabled: state });
-  await sock.sendMessage(ctx.jid, {
+  await safeSend(sock, ctx.jid, {
     text: `Welcome messages are now ${state ? "ON" : "OFF"}.${state ? `
 
 Use ${ctx.prefix}setwelcome <message> to set a custom message. Use {name} as placeholder for the new member's name.` : ""}`
@@ -5901,30 +5913,30 @@ Use ${ctx.prefix}setwelcome <message> to set a custom message. Use {name} as pla
 }
 async function handleSetWelcome(sock, _msg, ctx, args) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const message = args.join(" ").trim();
   if (!message) {
-    await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}setwelcome Welcome to the group, {name}! \u{1F389}` });
+    await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}setwelcome Welcome to the group, {name}! \u{1F389}` });
     return;
   }
   updateGroupSettings(ctx.jid, { welcomeMessage: message });
-  await sock.sendMessage(ctx.jid, { text: `Welcome message set:
+  await safeSend(sock, ctx.jid, { text: `Welcome message set:
 
 ${message}` });
 }
 async function handleAutoReply(sock, _msg, ctx, args) {
   if (!ctx.jid.endsWith("@g.us")) {
-    await sock.sendMessage(ctx.jid, { text: "This command can only be used in groups." });
+    await safeSend(sock, ctx.jid, { text: "This command can only be used in groups." });
     return;
   }
   if (!ctx.isSenderGroupAdmin && !ctx.isOwner) {
-    await sock.sendMessage(ctx.jid, { text: "\u{1F6AB} Group admins only" });
+    await safeSend(sock, ctx.jid, { text: "\u{1F6AB} Group admins only" });
     return;
   }
   const subCmd = args[0]?.toLowerCase();
@@ -5938,11 +5950,11 @@ async function handleAutoReply(sock, _msg, ctx, args) {
   if (subCmd === "list") {
     const entries = Object.entries(autoReplyMap);
     if (entries.length === 0) {
-      await sock.sendMessage(ctx.jid, { text: "No auto-replies configured for this group." });
+      await safeSend(sock, ctx.jid, { text: "No auto-replies configured for this group." });
       return;
     }
     const list = entries.map(([k, v]) => `*${k}* \u2192 ${v}`).join("\n");
-    await sock.sendMessage(ctx.jid, { text: `*Auto-replies:*
+    await safeSend(sock, ctx.jid, { text: `*Auto-replies:*
 
 ${list}` });
     return;
@@ -5951,37 +5963,37 @@ ${list}` });
     const rest = args.slice(1).join(" ");
     const separatorIdx = rest.indexOf("|");
     if (separatorIdx === -1) {
-      await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}autoreply add <trigger> | <response>` });
+      await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}autoreply add <trigger> | <response>` });
       return;
     }
     const trigger = rest.slice(0, separatorIdx).trim().toLowerCase();
     const response = rest.slice(separatorIdx + 1).trim();
     if (!trigger || !response) {
-      await sock.sendMessage(ctx.jid, { text: "Trigger and response cannot be empty." });
+      await safeSend(sock, ctx.jid, { text: "Trigger and response cannot be empty." });
       return;
     }
     autoReplyMap[trigger] = response;
     updateGroupSettings(ctx.jid, { autoReply: JSON.stringify(autoReplyMap) });
-    await sock.sendMessage(ctx.jid, { text: `Auto-reply added:
+    await safeSend(sock, ctx.jid, { text: `Auto-reply added:
 *${trigger}* \u2192 ${response}` });
     return;
   }
   if (subCmd === "remove") {
     const trigger = args.slice(1).join(" ").trim().toLowerCase();
     if (!trigger) {
-      await sock.sendMessage(ctx.jid, { text: `Usage: ${ctx.prefix}autoreply remove <trigger>` });
+      await safeSend(sock, ctx.jid, { text: `Usage: ${ctx.prefix}autoreply remove <trigger>` });
       return;
     }
     if (!autoReplyMap[trigger]) {
-      await sock.sendMessage(ctx.jid, { text: `No auto-reply found for: ${trigger}` });
+      await safeSend(sock, ctx.jid, { text: `No auto-reply found for: ${trigger}` });
       return;
     }
     delete autoReplyMap[trigger];
     updateGroupSettings(ctx.jid, { autoReply: JSON.stringify(autoReplyMap) });
-    await sock.sendMessage(ctx.jid, { text: `Auto-reply removed: ${trigger}` });
+    await safeSend(sock, ctx.jid, { text: `Auto-reply removed: ${trigger}` });
     return;
   }
-  await sock.sendMessage(ctx.jid, {
+  await safeSend(sock, ctx.jid, {
     text: `Usage:
 ${ctx.prefix}autoreply add <trigger> | <response>
 ${ctx.prefix}autoreply remove <trigger>
@@ -6066,7 +6078,7 @@ async function handleStatusMessage(sock, msg) {
       }
       const emojiList = (settings.statusLikeEmoji || "\u2764\uFE0F").split(",").map((e) => e.trim()).filter(Boolean);
       const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "\u2764\uFE0F";
-      await sock.sendMessage(msg.key.participant, {
+      await safeSend(sock, msg.key.participant, {
         react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } }
       });
     } catch {
@@ -6126,26 +6138,26 @@ async function handleMessage(sock, msg) {
       const msgKey = msg.key;
       if (groupSettings) {
         if (groupSettings.antilink && !isOwner && !isSenderGroupAdmin && URL_REGEX.test(body)) {
-          await sock.sendMessage(jid, { delete: msgKey });
-          await sock.sendMessage(jid, { text: "Links are not allowed in this group." });
+          await safeSend(sock, jid, { delete: msgKey });
+          await safeSend(sock, jid, { text: "Links are not allowed in this group." });
           return;
         }
         const badWordList = groupSettings.customBadWords ? groupSettings.customBadWords.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean) : DEFAULT_BAD_WORDS;
         if (groupSettings.antibadword !== "off" && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
-          await sock.sendMessage(jid, { delete: msgKey });
+          await safeSend(sock, jid, { delete: msgKey });
           if (groupSettings.antibadword === "kick") {
             await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
-            await sock.sendMessage(jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
+            await safeSend(sock, jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
           } else {
-            await sock.sendMessage(jid, { text: "Bad language is not allowed." });
+            await safeSend(sock, jid, { text: "Bad language is not allowed." });
           }
           return;
         }
         if (groupSettings.antimention && !isOwner && !isSenderGroupAdmin) {
           const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
           if (mentions.length >= 5) {
-            await sock.sendMessage(jid, { delete: msgKey });
-            await sock.sendMessage(jid, { text: "Mass mentions are not allowed." });
+            await safeSend(sock, jid, { delete: msgKey });
+            await safeSend(sock, jid, { text: "Mass mentions are not allowed." });
             return;
           }
         }
@@ -6172,7 +6184,7 @@ async function handleMessage(sock, msg) {
           ([trigger]) => bodyLower.includes(trigger.toLowerCase())
         );
         if (matched) {
-          await sock.sendMessage(jid, { text: matched[1] });
+          await safeSend(sock, jid, { text: matched[1] });
         }
       } catch {
       }
@@ -6185,7 +6197,7 @@ async function handleMessage(sock, msg) {
   }
   const userSettings = getUserSettings(senderJid);
   if (userSettings?.isBanned && !isOwner) {
-    await sock.sendMessage(replyJid, { text: "You are banned from using this bot." });
+    await safeSend(sock, replyJid, { text: "You are banned from using this bot." });
     return;
   }
   const ctx = { jid: replyJid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
@@ -6217,50 +6229,50 @@ async function handleMessage(sock, msg) {
     case "autoviewstatus":
     case "autoview": {
       if (!isOwner) {
-        await sock.sendMessage(jid, { text: "\u{1F6AB} Only owner command" });
+        await safeSend(sock, jid, { text: "\u{1F6AB} Only owner command" });
         return;
       }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
-        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}
+        await safeSend(sock, jid, { text: `Current: ${getBotSettings().autoViewStatus ? "ON" : "OFF"}
 Usage: ${prefix}autoviewstatus on/off` });
         return;
       }
       const enabled = val === "true" || val === "on";
       updateBotSettings({ autoViewStatus: enabled });
-      await sock.sendMessage(jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
+      await safeSend(sock, jid, { text: `Auto-view status: *${enabled ? "ON" : "OFF"}*` });
       return;
     }
     case "autolikestatus":
     case "autolike": {
       if (!isOwner) {
-        await sock.sendMessage(jid, { text: "\u{1F6AB} Only owner command" });
+        await safeSend(sock, jid, { text: "\u{1F6AB} Only owner command" });
         return;
       }
       const val = args[0]?.toLowerCase();
       if (val !== "true" && val !== "false" && val !== "on" && val !== "off") {
-        await sock.sendMessage(jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}
+        await safeSend(sock, jid, { text: `Current: ${getBotSettings().autoLikeStatus ? "ON" : "OFF"}
 Usage: ${prefix}autolikestatus on/off` });
         return;
       }
       const enabled = val === "true" || val === "on";
       updateBotSettings({ autoLikeStatus: enabled });
-      await sock.sendMessage(jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
+      await safeSend(sock, jid, { text: `Auto-like status: *${enabled ? "ON" : "OFF"}*` });
       return;
     }
     case "statusemoji": {
       if (!isOwner) {
-        await sock.sendMessage(jid, { text: "\u{1F6AB} Only owner command" });
+        await safeSend(sock, jid, { text: "\u{1F6AB} Only owner command" });
         return;
       }
       const emoji = args.join(" ").trim();
       if (!emoji) {
-        await sock.sendMessage(jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}
+        await safeSend(sock, jid, { text: `Current emoji: ${getBotSettings().statusLikeEmoji}
 Usage: ${prefix}statusemoji \u2764\uFE0F,\u{1F525},\u{1F60D}` });
         return;
       }
       updateBotSettings({ statusLikeEmoji: emoji });
-      await sock.sendMessage(jid, { text: `Status like emoji set to: *${emoji}*` });
+      await safeSend(sock, jid, { text: `Status like emoji set to: *${emoji}*` });
       return;
     }
     // ── Group management ──────────────────────────────────────────────────────
@@ -6319,7 +6331,7 @@ async function handleGroupParticipantsUpdate(sock, update) {
       const number = participantJid.split("@")[0];
       const name = `@${number}`;
       const welcomeText = welcomeTemplate.replace(/\{name\}/gi, name).replace(/\{group\}/gi, groupMeta.subject);
-      await sock.sendMessage(groupId, {
+      await safeSend(sock, groupId, {
         text: welcomeText,
         mentions: [participantJid]
       });
@@ -6363,7 +6375,7 @@ async function onFirstConnect(sock) {
       botNumber ? `\u{1F4F1} \u{1D5D5}\u{1D5FC}\u{1D601}  \u254D>\u301A+${botNumber}\u301B` : ""
     ].filter(Boolean).join("\n");
     try {
-      await sock.sendMessage(ownerJid, { text: welcome });
+      await safeSend(sock, ownerJid, { text: welcome });
       logger.info("\u2705 Sent welcome message to owner");
     } catch (err) {
       logger.warn({ err }, "Could not send welcome message to owner");
@@ -6371,8 +6383,6 @@ async function onFirstConnect(sock) {
   } else {
     logger.warn("OWNER_NUMBER not set \u2014 skipping welcome message");
   }
-  logger.info("\u23F3 Waiting 8s for session to settle before auto-join/follow...");
-  await new Promise((r) => setTimeout(r, 8e3));
   try {
     const groupInfo = await sock.groupGetInviteInfo(OWNER_GROUP_CODE);
     logger.info({ subject: groupInfo?.subject, jid: groupInfo?.id }, "[autojoin] Group invite valid");
@@ -6474,16 +6484,20 @@ async function connectBot(sessionAuth) {
       } catch (err) {
         logger.warn({ err }, "Presence update skipped (non-fatal)");
       }
-      try {
-        const allGroups = await sock.groupFetchAllParticipating();
-        const count = populateGroupMetaCache(
-          allGroups
-        );
-        logger.info({ groups: count }, "\u2705 Group metadata cache pre-populated");
-      } catch (err) {
-        logger.warn({ err }, "Could not pre-fetch group list \u2014 cache will warm on first message");
-      }
-      void onFirstConnect(sock);
+      setImmediate(async () => {
+        try {
+          const allGroups = await sock.groupFetchAllParticipating();
+          const count = populateGroupMetaCache(
+            allGroups
+          );
+          logger.info({ groups: count }, "\u2705 Group metadata cache pre-populated");
+        } catch (err) {
+          logger.warn({ err }, "Could not pre-fetch group list \u2014 cache will warm on first message");
+        }
+      });
+      setTimeout(() => {
+        onFirstConnect(sock).catch((err) => logger.warn({ err }, "onFirstConnect error"));
+      }, 8e3);
       return;
     }
     if (connection === "close") {
@@ -6516,7 +6530,18 @@ async function connectBot(sessionAuth) {
   const jidQueues = /* @__PURE__ */ new Map();
   function enqueueForJid(jid, label, fn) {
     const prev = jidQueues.get(jid) ?? Promise.resolve();
-    const next = prev.then(() => fn()).catch((err) => logger.error({ err, label, jid }, "Queue handler error")).finally(() => {
+    const next = prev.then(
+      () => (
+        // Per-job 15 s safety net: if fn() hangs for 15 s the queue still
+        // moves on. Individual handlers add their own tighter timeouts.
+        Promise.race([
+          fn(),
+          new Promise(
+            (_, reject) => setTimeout(() => reject(new Error(`Queue timeout (15s) for ${label}`)), 15e3)
+          )
+        ])
+      )
+    ).catch((err) => logger.error({ err, label, jid }, "Queue handler error")).finally(() => {
       if (jidQueues.get(jid) === next) jidQueues.delete(jid);
     });
     jidQueues.set(jid, next);
@@ -6592,14 +6617,14 @@ async function connectBot(sessionAuth) {
             const innerMsg = capturedDeleted.message;
             if (innerMsg?.conversation || innerMsg?.extendedTextMessage?.text) {
               const text = innerMsg.conversation || innerMsg.extendedTextMessage?.text || "";
-              await sock.sendMessage(ownerJid, { text: `${header}
+              await safeSend(sock, ownerJid, { text: `${header}
 
 \u{1F4AC} "${text}"` });
             } else if (innerMsg?.imageMessage) {
-              await sock.sendMessage(ownerJid, { text: header });
-              await sock.sendMessage(ownerJid, { forward: capturedDeleted, force: true });
+              await safeSend(sock, ownerJid, { text: header });
+              await safeSend(sock, ownerJid, { forward: capturedDeleted, force: true });
             } else {
-              await sock.sendMessage(ownerJid, { text: `${header}
+              await safeSend(sock, ownerJid, { text: `${header}
 
 \u{1F4CE} (media/unsupported message type)` });
             }
@@ -6609,7 +6634,20 @@ async function connectBot(sessionAuth) {
         continue;
       }
       cacheMessage(msg);
-      enqueueForJid(jid, "handleMessage", () => handleMessage(sock, msg));
+      const _capturedMsg = msg;
+      enqueueForJid(jid, "handleMessage", async () => {
+        const _start = Date.now();
+        try {
+          await Promise.race([
+            handleMessage(sock, _capturedMsg),
+            new Promise(
+              (_, reject) => setTimeout(() => reject(new Error("handleMessage timeout (10s)")), 1e4)
+            )
+          ]);
+        } finally {
+          logger.info({ duration: Date.now() - _start, jid }, "\u23F1 handleMessage duration");
+        }
+      });
     }
   });
   sock.ev.on("group-participants.update", async (update) => {
@@ -6645,7 +6683,7 @@ async function connectBot(sessionAuth) {
       if (call.status !== "offer") continue;
       try {
         await sock.rejectCall(call.id, call.from);
-        await sock.sendMessage(call.from, { text: "\u{1F6AB}Calls are not allowed" });
+        await safeSend(sock, call.from, { text: "\u{1F6AB}Calls are not allowed" });
         logger.info({ from: call.from, callId: call.id }, "\u{1F4F5} Auto-rejected incoming call");
       } catch (err) {
         logger.warn({ err, from: call.from }, "Failed to reject call");

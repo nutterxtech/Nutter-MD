@@ -1,0 +1,165 @@
+I’ve optimized my WhatsApp bot event loop (non-blocking + per-JID queue), but I’m still experiencing **very long response delays (up to 10 minutes) or skipped replies**.
+
+Based on analysis, the issue is NOT the messages.upsert loop anymore — it’s likely in message handling, network calls, or unresolved promises.
+
+Please fix the following specific issues:
+
+---
+
+1. **handleMessage() is likely blocking or hanging**
+
+Current:
+enqueueForJid(jid, "handleMessage", () => handleMessage(sock, msg));
+
+Problem:
+If handleMessage never resolves (e.g. waiting on slow API, groupMetadata, or stuck promise), the queue for that JID is blocked indefinitely → causes long delays.
+
+Fix:
+
+* Ensure handleMessage ALWAYS resolves
+* Add timeout wrapper
+
+Replace with:
+
+enqueueForJid(jid, "handleMessage", async () => {
+await Promise.race([
+handleMessage(sock, msg),
+new Promise((_, reject) =>
+setTimeout(() => reject(new Error("handleMessage timeout")), 10000)
+)
+]);
+});
+
+---
+
+2. **sock.sendMessage may hang (network / WhatsApp delay)**
+
+Anywhere using:
+await sock.sendMessage(...)
+
+Problem:
+Baileys sometimes hangs silently on sendMessage
+
+Fix:
+Wrap ALL sendMessage calls:
+
+async function safeSend(sock, jid, content) {
+return Promise.race([
+sock.sendMessage(jid, content),
+new Promise((_, reject) =>
+setTimeout(() => reject(new Error("send timeout")), 8000)
+)
+]);
+}
+
+Then replace ALL:
+await sock.sendMessage(...)
+
+WITH:
+await safeSend(sock, jid, {...})
+
+---
+
+3. **groupFetchAllParticipating() is heavy and blocks startup**
+
+Current:
+const allGroups = await sock.groupFetchAllParticipating();
+
+Problem:
+On large accounts, this can take seconds → delays bot readiness
+
+Fix:
+Run it in background:
+
+setImmediate(async () => {
+try {
+const allGroups = await sock.groupFetchAllParticipating();
+populateGroupMetaCache(allGroups);
+} catch {}
+});
+
+---
+
+4. **onFirstConnect() has 8s blocking delay**
+
+Current:
+await new Promise((r) => setTimeout(r, 8000));
+
+Problem:
+Blocks other startup tasks unnecessarily
+
+Fix:
+Make non-blocking:
+
+setTimeout(() => {
+onFirstConnect(sock);
+}, 8000);
+
+And REMOVE await inside connection.open
+
+---
+
+5. **Queue can still stall if one job is slow**
+
+Improve queue safety:
+
+Replace enqueueForJid with:
+
+function enqueueForJid(jid, label, fn) {
+const prev = jidQueues.get(jid) ?? Promise.resolve();
+
+const next = prev
+.then(() =>
+Promise.race([
+fn(),
+new Promise((_, reject) =>
+setTimeout(() => reject(new Error("Queue timeout")), 15000)
+)
+])
+)
+.catch((err) => logger.error({ err, label, jid }, "Queue handler error"))
+.finally(() => {
+if (jidQueues.get(jid) === next) jidQueues.delete(jid);
+});
+
+jidQueues.set(jid, next);
+}
+
+---
+
+6. **Possible LID issue still causing silent send failures**
+
+Ensure BEFORE sending:
+
+* All @lid JIDs are converted to real JIDs using stored mapping
+* NEVER send directly to @lid
+
+---
+
+7. **Add debug timing logs to locate delay**
+
+Inside handleMessage:
+
+const start = Date.now();
+
+...logic...
+
+logger.info({ duration: Date.now() - start }, "handleMessage duration");
+
+---
+
+Expected outcome after fixes:
+
+* No more 10 min delays
+* No skipped responses
+* Max response time < 2 seconds unless external API is slow
+
+---
+
+Focus especially on:
+
+* handleMessage
+* sendMessage
+* queue timeouts
+
+These are the real bottlenecks now.
