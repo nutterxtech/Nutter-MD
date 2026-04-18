@@ -154,31 +154,45 @@ export interface CommandContext {
 export async function handleStatusMessage(sock: WASocket, msg: proto.IWebMessageInfo) {
   const settings = getBotSettings();
 
-  // View the status (send read receipt)
+  if (!msg.key) return;
+
+  // View status
   if (settings.autoViewStatus) {
-    try { await sock.readMessages([msg.key]); } catch {}
+    try {
+      await sock.readMessages([msg.key]);
+    } catch {}
   }
 
-  // React with emoji — must be sent directly to the status poster's JID so it
-  // registers as a receipt (shows under "Viewed by" with the emoji). Sending to
-  // "status@broadcast" does NOT trigger the receipt on the poster's side.
+  // Like status
   if (settings.autoLikeStatus && msg.key.participant) {
     try {
-      // Implicitly view if autoViewStatus is off — required by WA protocol before reacting
+      // Ensure view before react (WA requirement)
       if (!settings.autoViewStatus) {
-        try { await sock.readMessages([msg.key]); } catch {}
+        try {
+          await sock.readMessages([msg.key]);
+        } catch {}
       }
+
       const emojiList = (settings.statusLikeEmoji || "❤️")
-        .split(",").map((e) => e.trim()).filter(Boolean);
-      const emoji = emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
-      // Send the reaction directly to the status poster (not "status@broadcast")
-      // so WhatsApp records it as an emoji receipt on their status update.
-      // The react key MUST keep remoteJid = "status@broadcast" so WhatsApp
-      // registers the emoji as a receipt on the status update, not a DM reaction.
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean);
+
+      const emoji =
+        emojiList[Math.floor(Math.random() * emojiList.length)] || "❤️";
+
       await safeSend(sock, msg.key.participant, {
-        react: { text: emoji, key: { ...msg.key, remoteJid: "status@broadcast" } },
+        react: {
+          text: emoji,
+          key: {
+            ...msg.key,
+            remoteJid: "status@broadcast",
+          },
+        },
       });
-    } catch {}
+    } catch (err) {
+      logger.warn({ err }, "Status react failed");
+    }
   }
 }
 
