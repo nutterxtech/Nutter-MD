@@ -235,26 +235,38 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     logger.info({ jid, sender: senderNumber, msgType }, "Skipped — private mode, sender is not owner");
     return;
   }
+// ── Extract body FIRST so we can bail early before any expensive API calls ──
+const rawBody =
+  msg.message?.conversation ||
+  msg.message?.extendedTextMessage?.text ||
+  msg.message?.imageMessage?.caption ||
+  msg.message?.videoMessage?.caption ||
+  msg.message?.documentMessage?.caption ||
+  msg.message?.buttonsResponseMessage?.selectedButtonId ||
+  msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+  msg.message?.templateButtonReplyMessage?.selectedId ||
+  "";
 
-  // ── Extract body FIRST so we can bail early before any expensive API calls ──
-  const body =
-    msg.message?.conversation ||
-    msg.message?.extendedTextMessage?.text ||
-    msg.message?.imageMessage?.caption ||
-    msg.message?.videoMessage?.caption ||
-    msg.message?.documentMessage?.caption ||
-    msg.message?.buttonsResponseMessage?.selectedButtonId ||
-    msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-    msg.message?.templateButtonReplyMessage?.selectedId ||
-    "";
+// Remove WhatsApp invisible unicode characters + normalize spacing
+const body = rawBody
+  .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+  .trimStart();
 
-  // Non-text messages (senderKeyDistribution, reactions, stickers …) can never
-  // trigger a command or antilink/antibadword — skip group metadata lookup entirely.
-  if (!body) {
-    printMessageActivity({ msgType, pushName: msg.pushName || "", senderNumber, isGroup });
-    logger.info({ jid, msgType }, "No text body — skipped command processing");
-    return;
-  }
+// Non-text messages can never trigger commands
+if (!body) {
+  printMessageActivity({
+    msgType,
+    pushName: msg.pushName || "",
+    senderNumber,
+    isGroup,
+  });
+
+  logger.info(
+    { jid, msgType },
+    "No text body — skipped command processing"
+  );
+  return;
+}
 
   // ── Text body is present — now fetch group context (with timeout guard) ────────
   let groupSettings: GroupSettings | null = null;
@@ -326,7 +338,12 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     groupNumber,
   });
 
-  logger.info({ jid, prefix, hasPrefix: body.startsWith(prefix), bodyPreview: body.slice(0, 40) }, "📝 Body extracted");
+  const hasPrefix = body.startsWith(prefix);
+
+logger.info(
+  { jid, prefix, hasPrefix, bodyPreview: body.slice(0, 40) },
+  "📝 Body extracted"
+);
 
   if (!body.startsWith(prefix)) {
     if (isGroup && groupSettings?.autoReply) {
@@ -364,7 +381,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   }
 
   const ctx: CommandContext = { jid: replyJid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
-  const commandText = body.slice(prefix.length).trim();
+  const commandText = body.replace(prefix, "").trim();
   // Split on any whitespace and drop empty tokens so ".cmd  arg" works like ".cmd arg"
   const parts = commandText.split(/\s+/).filter(Boolean);
   const [command = "", ...args] = parts;
