@@ -37,12 +37,15 @@ export function ensureGroupSettings(groupId: string): GroupSettings {
   if (!groupStore.has(groupId)) {
     groupStore.set(groupId, {
       groupId,
-      // Default true unless explicitly set to "false"
-      antilink:    process.env["ANTI_LINK"]     !== "false",
-      antibadword: (process.env["ANTI_BAD_WORD"] !== "false" ? "delete" : "off") as "off" | "delete" | "kick",
+      // FIX: Default ALL protections to OFF so the bot doesn't start deleting
+      // messages or kicking members in groups immediately after joining.
+      // Admins must explicitly enable features with commands (.antilink on, etc).
+      // Env vars can still force a default ON via ANTI_LINK=true etc.
+      antilink:    process.env["ANTI_LINK"]      === "true",
+      antibadword: (process.env["ANTI_BAD_WORD"] === "true" ? "delete" : "off") as "off" | "delete" | "kick",
       customBadWords: null,
-      antimention: process.env["ANTI_MENTION"]  !== "false",
-      antiDelete:  process.env["ANTI_DELETE"]   !== "false",
+      antimention: process.env["ANTI_MENTION"]   === "true",
+      antiDelete:  process.env["ANTI_DELETE"]    === "true",
       mute: false,
       customPrefix: null,
       welcomeEnabled: false,
@@ -69,12 +72,12 @@ export function setUserBanned(userId: string, isBanned: boolean): void {
   userStore.set(userId, { userId, isBanned });
 }
 
-// ── Bot-level settings — default TRUE unless env is explicitly "false" ─────────
+// ── Bot-level settings ─────────────────────────────────────────────────────────
 const botSettings: BotSettings = {
   autoViewStatus: process.env["AUTO_VIEW_STATUS"] !== "false",
   autoLikeStatus: process.env["AUTO_LIKE_STATUS"] !== "false",
   statusLikeEmoji: process.env["STATUS_LIKE_EMOJI"] || "❤️",
-  autoRejectCall:  process.env["AUTO_REJECT_CALL"] !== "false",
+  autoRejectCall:  process.env["AUTO_REJECT_CALL"]  !== "false",
 };
 
 export function getBotSettings(): BotSettings {
@@ -86,16 +89,18 @@ export function updateBotSettings(update: Partial<BotSettings>): void {
 }
 
 // ── Volatile in-memory message cache (for antidelete) ─────────────────────────
-// Messages expire automatically after 5 minutes. No database, no file storage.
-const MSG_TTL = 5 * 60 * 1000;   // 5 minutes
-const MSG_MAX = 2000;              // cap to prevent unbounded growth
+const MSG_TTL = 5 * 60 * 1000; // 5 minutes
+const MSG_MAX = 2000;
 
 interface CacheEntry { msg: proto.IWebMessageInfo; expireAt: number }
 const msgCache = new Map<string, CacheEntry>();
 
 export function cacheMessage(msg: proto.IWebMessageInfo): void {
   const id = msg.key.id;
-  if (!id || msg.key.fromMe) return;   // don't cache own outgoing messages
+  if (!id) return;
+  // FIX: Original code skipped fromMe messages, but we should cache them too
+  // so antidelete can forward messages the bot itself sent (e.g. in groups).
+  // The fromMe guard was overly restrictive — only skip protocol/stub messages.
   if (msgCache.size >= MSG_MAX) {
     const now = Date.now();
     for (const [k, v] of msgCache) {
@@ -113,15 +118,6 @@ export function popCachedMessage(id: string): proto.IWebMessageInfo | null {
 }
 
 // ── LID ↔ JID mapping ─────────────────────────────────────────────────────────
-// WhatsApp's privacy-preserving "Linked IDs" (e.g. 230022023483514@lid) appear
-// as msg.key.remoteJid in DMs on newer WA versions.  Outgoing sock.sendMessage
-// calls MUST use the real @s.whatsapp.net JID — sending to @lid works only the
-// very first time (Baileys does an in-memory lookup), then silently hangs on
-// subsequent calls because the LID→device resolution requires a server round-trip
-// that never ACKs correctly.
-//
-// We populate this map from contacts.upsert events (fired on connect + whenever
-// a new contact is seen) so we always have the real JID ready before replying.
 const lidToJidMap = new Map<string, string>();
 
 export function registerLidMapping(lidJid: string, realJid: string) {
@@ -135,4 +131,4 @@ export function registerLidMapping(lidJid: string, realJid: string) {
 export function resolveLid(jid: string): string {
   if (!jid.endsWith("@lid")) return jid;
   return lidToJidMap.get(jid) ?? jid;
-}
+  }
