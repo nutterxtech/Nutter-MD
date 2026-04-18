@@ -474,4 +474,4 @@ export async function handleGroupParticipantsUpdate(
   } catch (err) {
     logger.warn({ err, groupId }, "Failed to send welcome message");
   }
-      }
+                              }
