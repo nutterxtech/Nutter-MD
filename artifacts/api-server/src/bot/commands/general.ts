@@ -7,7 +7,7 @@ import { safeSend } from "../utils";
 import fs from "fs";
 import path from "path";
 
-// ── Menu image — bundled in src/bot/assets/ and copied to dist/assets/ ─────────
+// ── Menu image ────────────────────────────────────────────────────────────────
 function getMenuImageBuffer(): Buffer | null {
   try {
     const assetPath = path.join(__dirname, "assets", "menu.jpg");
@@ -17,7 +17,7 @@ function getMenuImageBuffer(): Buffer | null {
   }
 }
 
-// ── Menu category definitions ────────────────────────────────────────────────────
+// ── Menu category definitions ─────────────────────────────────────────────────
 const MENU_CATEGORIES = [
   {
     icon: "🤖",
@@ -90,7 +90,7 @@ function buildMenuText(prefix: string, pushName: string): string {
   return header + categories;
 }
 
-// ── Command handlers ──────────────────────────────────────────────────────────────
+// ── Command handlers ──────────────────────────────────────────────────────────
 
 export async function handlePing(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const start = Date.now();
@@ -101,7 +101,7 @@ export async function handlePing(sock: WASocket, msg: proto.IWebMessageInfo, ctx
 
 export async function handleAlive(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext) {
   const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
+  const hours   = Math.floor(uptime / 3600);
   const minutes = Math.floor((uptime % 3600) / 60);
   const seconds = Math.floor(uptime % 60);
   const text = `*NUTTER-XMD* ⚡\n\n*Status:* Online\n*Uptime:* ${hours}h ${minutes}m ${seconds}s\n*Version:* 9.1.3`;
@@ -109,15 +109,25 @@ export async function handleAlive(sock: WASocket, _msg: proto.IWebMessageInfo, c
 }
 
 export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
-  const senderJid = msg.key.participant || (msg.key.fromMe ? (sock.user?.id || "") : (msg.key.remoteJid || ""));
+  // FIX: Original code used `msg.key.fromMe` (a boolean) as a fallback for
+  // senderJid, producing "true" or "false" as the JID string in DMs. We now
+  // derive the real sender JID properly for all cases.
+  let senderJid: string;
+  if (ctx.isGroup) {
+    senderJid = msg.key.participant || (sock.user?.id || "");
+  } else if (msg.key.fromMe) {
+    // Owner sent the command from their own phone (paired account)
+    const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
+    senderJid = ownerNumber ? `${ownerNumber}@s.whatsapp.net` : (sock.user?.id || "");
+  } else {
+    senderJid = msg.key.remoteJid || "";
+  }
+
   const pushName = msg.pushName || senderJid.split("@")[0].split(":")[0];
-
   const menuText = `Hey @${senderJid.split("@")[0]} 🤖\n\n` + buildMenuText(prefix, pushName);
-
-  const imgBuf = getMenuImageBuffer();
+  const imgBuf   = getMenuImageBuffer();
 
   if (imgBuf) {
-    // Single message: image + caption + mention (exactly how RAVEN-BOT sends it)
     await safeSend(
       sock,
       ctx.jid,
@@ -130,14 +140,8 @@ export async function handleMenu(sock: WASocket, msg: proto.IWebMessageInfo, ctx
       { quoted: msg }
     );
   } else {
-    // Fallback if image asset is missing — text only
     logger.warn("Menu image not found — sending text only");
-    await safeSend(
-      sock,
-      ctx.jid,
-      { text: menuText, mentions: [senderJid] },
-      { quoted: msg }
-    );
+    await safeSend(sock, ctx.jid, { text: menuText, mentions: [senderJid] }, { quoted: msg });
   }
 }
 
@@ -157,10 +161,10 @@ export async function handleOwner(sock: WASocket, _msg: proto.IWebMessageInfo, c
 }
 
 export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo, ctx: CommandContext, prefix: string) {
-  const botName = process.env["BOT_NAME"] || "NUTTER-XMD";
+  const botName    = process.env["BOT_NAME"] || "NUTTER-XMD";
   const ownerNumber = process.env["OWNER_NUMBER"] || "Not set";
-  const mode = (process.env["BOT_MODE"] || "public").toLowerCase();
-  const bs = getBotSettings();
+  const mode        = (process.env["BOT_MODE"] || "public").toLowerCase();
+  const bs          = getBotSettings();
 
   const botInfo =
     `*${botName} Settings*\n\n` +
@@ -179,8 +183,9 @@ export async function handleSettings(sock: WASocket, _msg: proto.IWebMessageInfo
     groupInfo =
       `\n\n*Group Protection*\n` +
       `Antilink: ${s.antilink ? "ON" : "OFF"}\n` +
-      `Antibadword: ${s.antibadword ? "ON" : "OFF"}\n` +
+      `Antibadword: ${s.antibadword !== "off" ? "ON (" + s.antibadword + ")" : "OFF"}\n` +
       `Antimention: ${s.antimention ? "ON" : "OFF"}\n` +
+      `Antidelete: ${s.antiDelete ? "ON" : "OFF"}\n` +
       `Mute: ${s.mute ? "ON" : "OFF"}\n` +
       `Custom Prefix: ${s.customPrefix || prefix}\n\n` +
       `*Welcome*\n` +
@@ -205,13 +210,13 @@ async function downloadToBuffer(mediaMsg: object, type: "image" | "video"): Prom
 }
 
 async function extractVideoFirstFrame(videoBuffer: Buffer): Promise<Buffer> {
-  const os = await import("os");
+  const os      = await import("os");
   const pathMod = await import("path");
-  const fsMod = await import("fs");
+  const fsMod   = await import("fs");
   const { spawn } = await import("child_process");
 
-  const tmpDir = os.default.tmpdir();
-  const inputPath = pathMod.default.join(tmpDir, `nutter_vid_${Date.now()}.mp4`);
+  const tmpDir    = os.default.tmpdir();
+  const inputPath  = pathMod.default.join(tmpDir, `nutter_vid_${Date.now()}.mp4`);
   const outputPath = pathMod.default.join(tmpDir, `nutter_frame_${Date.now()}.png`);
 
   fsMod.default.writeFileSync(inputPath, videoBuffer);
@@ -257,7 +262,6 @@ export async function handleSticker(sock: WASocket, msg: proto.IWebMessageInfo, 
     const { default: sharp } = await import("sharp");
 
     let sourceBuffer: Buffer;
-
     if (imageMsg) {
       sourceBuffer = await downloadToBuffer(imageMsg, "image");
     } else {
