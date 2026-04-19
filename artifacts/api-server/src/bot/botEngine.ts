@@ -3,11 +3,11 @@ import { Boom } from "@hapi/boom";
 import { logger } from "../lib/logger";
 import { loadSessionFromEnv } from "./session";
 import { handleMessage, handleStatusMessage, handleGroupParticipantsUpdate, populateGroupMetaCache, upsertGroupMetaCache } from "./handler";
-import { cacheMessage, popCachedMessage, getGroupSettings, getBotSettings, registerLidMapping } from "./store";
+import { cacheMessage, popCachedMessage, getGroupSettings, getBotSettings, registerLidMapping, resolveLid } from "./store"; // ← FIX: added resolveLid
 import { safeSend } from "./utils";
 import type { WASocket } from "@whiskeysockets/baileys";
 
-const MAX_RECONNECTS = 2;
+const MAX_RECONNECTS = 10; // ← FIX: was 2, too low for Heroku transient drops
 const RECONNECT_DELAY_MS = 5000;
 
 const silentLogger = pino({ level: "silent" });
@@ -132,15 +132,22 @@ async function connectBot(sessionAuth: {
     logger: silentLogger,
     syncFullHistory: false,
     cachedGroupMetadata: async () => undefined,
+    // ← FIX: return a minimal stub on cache miss so Baileys still attempts
+    // decryption rather than silently dropping the retry.
     getMessage: async (key) => {
       const cached = key.id ? popCachedMessage(key.id) : undefined;
-      return cached?.message ?? undefined;
+      if (cached?.message) return cached.message;
+      return { conversation: "" };
     },
   });
 
   sock.ev.on("creds.update", sessionAuth.saveCreds);
 
   // ── LID → JID mapping ────────────────────────────────────────────────────────
+  // WhatsApp privacy mode delivers DMs with @lid remoteJids. Baileys fires
+  // contacts.upsert with {id: realJid, lid: lidJid} on connect and when a new
+  // contact appears. We store this so we can resolve @lid → real phone number
+  // before comparing with OWNER_NUMBER or calling sock.sendMessage.
   sock.ev.on("contacts.upsert", (contacts) => {
     let mapped = 0;
     for (const contact of contacts) {
@@ -160,6 +167,7 @@ async function connectBot(sessionAuth: {
     if (connection === "open") {
       failureCount = 0;
       connectedAt = Date.now();
+      hasSentWelcome = false; // ← FIX: reset so owner gets a notice on every reconnect
       logger.info("✅ NUTTER-XMD connected to WhatsApp");
 
       try {
@@ -273,21 +281,38 @@ async function connectBot(sessionAuth: {
       if (msg.key?.fromMe) {
         const isGroupJid = remoteJid.endsWith("@g.us");
         const isSelfChat = !!botNumber && remoteNumber === botNumber;
-        // FIX: Never skip DMs where remoteJid is the owner's number.
-        // When the owner sends a command to the bot, Baileys marks it fromMe=true
-        // because it originates from the paired account. Without this check, every
-        // owner DM command was hitting the `continue` below and being silently dropped.
-        const isOwnerDM  = !!ownerNumber && remoteNumber === ownerNumber;
+
+        // ── FIX: LID-aware owner DM detection ─────────────────────────────
+        //
+        // When the owner DMs the bot, Baileys marks fromMe=true and remoteJid
+        // is the owner's @lid JID (e.g. "230022023483514@lid"). The LID number
+        // has NO relation to the owner's phone number (254734265579), so the
+        // old plain remoteNumber === ownerNumber check always returned false
+        // and every owner DM command was silently dropped.
+        //
+        // Fix: resolve @lid → real @s.whatsapp.net JID using the map built from
+        // contacts.upsert, then extract the phone number for comparison.
+        // contacts.upsert fires very early on connect so the map is ready before
+        // the owner's first message in practice.
+        const resolvedRemote = remoteJid.endsWith("@lid") ? resolveLid(remoteJid) : remoteJid;
+        const resolvedNumber = resolvedRemote.split(":")[0].split("@")[0];
+        const isOwnerDM      = !!ownerNumber && resolvedNumber === ownerNumber;
 
         if (!isSelfChat && !isGroupJid && !isOwnerDM) {
-          logger.info({ jid: remoteJid }, "↩ fromMe DM echo — skipped");
+          logger.info(
+            { jid: remoteJid, resolvedRemote, resolvedNumber, ownerNumber },
+            "↩ fromMe DM echo — skipped"
+          );
           continue;
         }
         if (isSelfChat) {
           logger.info({ jid: remoteJid }, "👤 Self-chat — processing as owner command");
         }
         if (isOwnerDM) {
-          logger.info({ jid: remoteJid }, "👑 Owner DM — processing as owner command");
+          logger.info(
+            { jid: remoteJid, resolved: resolvedRemote },
+            "👑 Owner DM — processing as owner command"
+          );
         }
       }
 
@@ -307,6 +332,8 @@ async function connectBot(sessionAuth: {
       }
 
       // ── Stale-message guard ───────────────────────────────────────────────
+      // Skip messages sent more than 15 s before this connection opened so
+      // stale replayed commands don't re-execute on reconnect.
       const sentAt = Number(msg.messageTimestamp) * 1000 || 0;
       const cutoff = connectedAt - 15_000;
       if (cutoff > 0 && sentAt > 0 && sentAt < cutoff) {
@@ -317,13 +344,13 @@ async function connectBot(sessionAuth: {
       const jid = msg.key.remoteJid!;
       logger.info({ jid, jidType: jid.split("@")[1] ?? "unknown", fromMe: msg.key.fromMe }, "➡️ Dispatching message");
 
-      // ── Status broadcasts ─────────────────────────────────────────────────
+      // ── Status broadcasts — fire-and-forget ───────────────────────────────
       if (jid === "status@broadcast") {
         fireAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
         continue;
       }
 
-      // ── Antidelete: detect REVOKE protocol messages ───────────────────────
+      // ── Antidelete: detect REVOKE protocol messages (type 0 = delete for everyone)
       const proto = msg.message!.protocolMessage;
       if (proto && proto.type === 0 && proto.key?.id) {
         const deletedMsg = popCachedMessage(proto.key.id);
@@ -360,10 +387,10 @@ async function connectBot(sessionAuth: {
         continue;
       }
 
-      // ── Cache for antidelete ──────────────────────────────────────────────
+      // ── Cache for antidelete (sync — must happen before dispatching) ──────
       cacheMessage(msg);
 
-      // ── Command handler — enqueued per-JID ───────────────────────────────
+      // ── Command handler — enqueued per-JID for back-pressure ─────────────
       const _capturedMsg = msg;
       enqueueForJid(jid, "handleMessage", async () => {
         const _start = Date.now();
@@ -428,4 +455,4 @@ async function connectBot(sessionAuth: {
   });
 
   return sock;
-}
+    }
