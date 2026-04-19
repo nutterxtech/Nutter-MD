@@ -13,15 +13,9 @@ export const SESSION_PREFIX = "NUTTERX-MD::;";
 export type SessionFileMap = Record<string, unknown>;
 
 // ── Stable session directory ──────────────────────────────────────────────────
-// FIX: was `nutter-xmd-session-${process.pid}` which on Heroku is always pid=4,
-// causing the directory to be deleted and recreated on every restart. This wiped
-// all Signal key material that Baileys accumulated at runtime (sender-key
-// exchanges, session ratchet advances), leaving only the stale pairing-time
-// snapshot from SESSION_ID — causing verifyMAC / Bad MAC decryption failures.
-//
-// Using a fixed name means the session directory survives restarts within the
-// same dyno lifetime. Baileys' useMultiFileAuthState reads from and writes to
-// this directory continuously so new keys are always current.
+// Using a fixed name (not process.pid) so the directory survives restarts
+// within the same dyno lifetime. Baileys writes new Signal keys here at runtime;
+// wiping it on restart causes verifyMAC / Bad MAC decryption failures.
 const SESSION_DIR = path.join(os.tmpdir(), "nutter-xmd-session");
 
 let activeBotSessionDir: string | null = null;
@@ -35,53 +29,240 @@ export async function loadSessionFromEnv(): Promise<{
   saveCreds: () => Promise<void>;
 } | null> {
   const sessionId = process.env["SESSION_ID"];
+
+  // ── Diagnostic: log SESSION_ID presence and prefix ────────────────────────
   if (!sessionId) {
-    logger.info("No SESSION_ID env var found — bot will not start");
+    logger.error("❌ SESSION_ID env var is not set — bot cannot start. Set it in Heroku Config Vars.");
     return null;
   }
 
+  logger.info(
+    { length: sessionId.length, prefix: sessionId.slice(0, 20), endsWithSemicolon: sessionId.startsWith(SESSION_PREFIX) },
+    "🔑 SESSION_ID found — checking prefix"
+  );
+
   if (!sessionId.startsWith(SESSION_PREFIX)) {
     logger.error(
-      { prefix: sessionId.slice(0, 16) },
-      `Invalid SESSION_ID: must start with "${SESSION_PREFIX}". Re-pair your device on the pairing page to get a new SESSION_ID.`
+      { expected: SESSION_PREFIX, got: sessionId.slice(0, 20) },
+      `❌ Invalid SESSION_ID prefix. Re-pair on the pairing page to get a new SESSION_ID.`
     );
     return null;
   }
 
   const encoded = sessionId.slice(SESSION_PREFIX.length);
+  logger.info({ encodedLength: encoded.length }, "🔑 Encoded payload extracted");
 
   try {
     const raw = Buffer.from(encoded, "base64");
+    logger.info({ rawBytes: raw.length, isGzip: raw[0] === 0x1f && raw[1] === 0x8b }, "🗜 Base64 decoded");
 
     let jsonStr: string;
     if (raw[0] === 0x1f && raw[1] === 0x8b) {
       const decompressed = await gunzip(raw);
       jsonStr = decompressed.toString("utf-8");
+      logger.info({ decompressedBytes: decompressed.length }, "🗜 Gzip decompressed");
     } else {
       jsonStr = raw.toString("utf-8");
+      logger.info({ rawBytes: raw.length }, "📄 No compression detected — using raw");
     }
 
-    const fileMap = JSON.parse(jsonStr) as SessionFileMap;
+    // ── Validate JSON ─────────────────────────────────────────────────────────
+    let fileMap: SessionFileMap;
+    try {
+      fileMap = JSON.parse(jsonStr) as SessionFileMap;
+    } catch (parseErr) {
+      logger.error({ parseErr, preview: jsonStr.slice(0, 100) }, "❌ SESSION_ID JSON is corrupted — re-pair to get a new one");
+      return null;
+    }
 
-    const { useMultiFileAuthState } = await import("@whiskeysockets/baileys");
+    const fileKeys = Object.keys(fileMap);
+    const hasCreds       = fileKeys.includes("creds.json");
+    const preKeyCount    = fileKeys.filter((f) => f.startsWith("pre-key-")).length;
+    const sessionCount   = fileKeys.filter((f) => f.startsWith("session-")).length;
+    const senderKeyCount = fileKeys.filter((f) => f.startsWith("sender-key-")).length;
 
-    // FIX: use a stable directory name — do NOT wipe it if it already exists.
-    // If the directory is present from a previous run within the same dyno
-    // lifetime, its files are more up-to-date than the SESSION_ID snapshot
-    // (Baileys has been writing new keys into it continuously). Only write
-    // files from SESSION_ID that don't already exist on disk so we never
-    // overwrite a newer runtime key with a stale pairing-time key.
-    const sessionDir = SESSION_DIR;
-    const isFirstBoot = !fs.existsSync(sessionDir);
+    logger.info(
+      { totalFiles: fileKeys.length, hasCreds, preKeyCount, sessionCount, senderKeyCount },
+      "📋 SESSION_ID file inventory"
+    );
+
+    if (!hasCreds) {
+      logger.error("❌ SESSION_ID is missing creds.json — this session cannot connect. Re-pair to get a new SESSION_ID.");
+      return null;
+    }
+
+    // ── Write session files to stable directory ───────────────────────────────
+    const sessionDir   = SESSION_DIR;
+    const dirExists    = fs.existsSync(sessionDir);
+    const isFirstBoot  = !dirExists;
 
     if (isFirstBoot) {
       fs.mkdirSync(sessionDir, { recursive: true });
       logger.info({ sessionDir }, "📁 Fresh session directory created");
     } else {
-      logger.info({ sessionDir }, "📁 Reusing existing session directory (runtime keys preserved)");
+      const existingFiles = fs.readdirSync(sessionDir);
+      logger.info({ sessionDir, existingFiles: existingFiles.length }, "📁 Reusing existing session directory");
     }
 
-    // Write SESSION_ID files — skip any file that already exists on disk
+    // Write files from SESSION_ID — skip any that already exist on disk
+    // (the on-disk version was written by Baileys at runtime and is newer)
+    let written = 0;
+    let skipped = 0;
+    for (const [filename, content] of Object.entries(fileMap)) {
+      const filePath = path.join(sessionDir, filename);
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, JSON.stringify(content), "utf-8");
+        written++;
+      } else {
+        skipped++;
+      }
+    }
+
+    logger.info({ written, skipped }, "📝 Session files written (skipped = already on disk from runtime)");
+
+    // ── Load Baileys auth state ───────────────────────────────────────────────
+    const { useMultiFileAuthState } = await import("@whiskeysockets/baileys");
+
+    let authState: Awaited<ReturnType<typeof useMultiFileAuthState>>;
+    try {
+      authState = await useMultiFileAuthState(sessionDir);
+    } catch (authErr) {
+      logger.error({ authErr }, "❌ useMultiFileAuthState failed — session files may be corrupted. Re-pair to fix.");
+      return null;
+    }
+
+    activeBotSessionDir = sessionDir;
+
+    // ── Final inventory of what's actually on disk ────────────────────────────
+    const allFiles         = fs.readdirSync(sessionDir);
+    const diskSessions     = allFiles.filter((f) => f.startsWith("session-")).length;
+    const diskSenderKeys   = allFiles.filter((f) => f.startsWith("sender-key-") && f !== "sender-key-memory.json").length;
+    const diskPreKeys      = allFiles.filter((f) => f.startsWith("pre-key-")).length;
+    const hasDiskCreds     = allFiles.includes("creds.json");
+
+    logger.info(
+      {
+        sessionDir,
+        totalOnDisk: allFiles.length,
+        hasCreds: hasDiskCreds,
+        preKeys: diskPreKeys,
+        sessions: diskSessions,
+        senderKeys: diskSenderKeys,
+      },
+      "✅ Session loaded successfully — Baileys auth state ready"
+    );
+
+    if (!hasDiskCreds) {
+      logger.error("❌ creds.json missing from session directory after write — this will cause immediate logout");
+    }
+
+    return authState;
+
+  } catch (err) {
+    logger.error({ err }, "❌ Failed to load SESSION_ID — re-pair on the pairing page to get a new one");
+    return null;
+  }
+}
+
+// ── Encoding constants ────────────────────────────────────────────────────────
+const MAX_PREKEYS           = 50;
+const SESSION_RAW_BUDGET    = 150_000;
+const SENDER_KEY_RAW_BUDGET = 120_000;
+
+export async function encodeSessionToBase64(fileMap: SessionFileMap): Promise<string> {
+  const toEncode: SessionFileMap = {};
+
+  if (fileMap["creds.json"]) {
+    toEncode["creds.json"] = fileMap["creds.json"];
+  } else {
+    logger.warn("creds.json not found in fileMap — SESSION_ID may be invalid");
+  }
+
+  // ── Pre-key files ─────────────────────────────────────────────────────────
+  const preKeyFiles = Object.keys(fileMap)
+    .filter((f) => f.startsWith("pre-key-") && f.endsWith(".json"))
+    .sort((a, b) => {
+      const idA = parseInt(a.replace("pre-key-", "").replace(".json", ""), 10) || 0;
+      const idB = parseInt(b.replace("pre-key-", "").replace(".json", ""), 10) || 0;
+      return idA - idB;
+    })
+    .slice(-MAX_PREKEYS);
+
+  for (const f of preKeyFiles) {
+    toEncode[f] = fileMap[f];
+  }
+
+  // ── Session files ─────────────────────────────────────────────────────────
+  let sessionRawBytes = 0;
+  const sessionFiles = Object.keys(fileMap)
+    .filter((f) => f.startsWith("session-") && f.endsWith(".json"))
+    .sort();
+
+  for (const f of sessionFiles) {
+    const size = JSON.stringify(fileMap[f]).length;
+    if (sessionRawBytes + size > SESSION_RAW_BUDGET) break;
+    toEncode[f] = fileMap[f];
+    sessionRawBytes += size;
+  }
+
+  const sessionCount = Object.keys(toEncode).filter((f) => f.startsWith("session-")).length;
+
+  // ── Sender-key files — sort newest first so active groups survive budget ──
+  if (fileMap["sender-key-memory.json"]) {
+    toEncode["sender-key-memory.json"] = fileMap["sender-key-memory.json"];
+  }
+
+  let senderKeyRawBytes = 0;
+  const sessionDirForStat = activeBotSessionDir ?? os.tmpdir();
+
+  const senderKeyFiles = Object.keys(fileMap)
+    .filter((f) => f.startsWith("sender-key-") && f.endsWith(".json") && f !== "sender-key-memory.json")
+    .sort((a, b) => {
+      try {
+        const mtimeA = fs.statSync(path.join(sessionDirForStat, a)).mtimeMs;
+        const mtimeB = fs.statSync(path.join(sessionDirForStat, b)).mtimeMs;
+        return mtimeB - mtimeA; // newest first
+      } catch {
+        return a.localeCompare(b);
+      }
+    });
+
+  for (const f of senderKeyFiles) {
+    const size = JSON.stringify(fileMap[f]).length;
+    if (senderKeyRawBytes + size > SENDER_KEY_RAW_BUDGET) break;
+    toEncode[f] = fileMap[f];
+    senderKeyRawBytes += size;
+  }
+
+  const senderKeyCount = Object.keys(toEncode).filter((f) => f.startsWith("sender-key-")).length;
+
+  logger.info(
+    {
+      totalFiles:   Object.keys(toEncode).length,
+      preKeys:      preKeyFiles.length,
+      sessions:     sessionCount,
+      senderKeys:   senderKeyCount,
+      sessionBytes: sessionRawBytes,
+      senderBytes:  senderKeyRawBytes,
+    },
+    "Encoding session (creds + pre-keys + sessions + sender-keys)"
+  );
+
+  const json       = Buffer.from(JSON.stringify(toEncode), "utf-8");
+  const compressed = await gzip(json);
+  const encoded    = SESSION_PREFIX + compressed.toString("base64");
+
+  const charLen = encoded.length;
+  if (charLen > 60_000) {
+    logger.warn(
+      { charLen, herokuLimit: 65536 },
+      "⚠️ SESSION_ID is large — approaching Heroku 64 KB limit. Consider re-pairing."
+    );
+  } else {
+    logger.info({ charLen, herokuLimit: 65536 }, "✅ SESSION_ID size OK");
+  }
+  return encoded;
+}    // Write SESSION_ID files — skip any file that already exists on disk
     // (the on-disk version is newer and should not be overwritten).
     let written = 0;
     let skipped = 0;
