@@ -40,15 +40,15 @@ import {
 const DEFAULT_BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "nigga", "faggot", "cunt"];
 const URL_REGEX = /https?:\/\/[^\s]+|wa\.me\/[^\s]+|t\.me\/[^\s]+/i;
 
-// ── Group metadata cache — avoids an API call on every group message ───────────
+// ── Group metadata cache ───────────────────────────────────────────────────────
 interface GroupMetaEntry {
   subject: string;
   participants: Array<{ id: string; admin?: "admin" | "superadmin" | null }>;
   expireAt: number;
 }
 const groupMetaCache = new Map<string, GroupMetaEntry>();
-const GROUP_META_TTL = 2 * 60 * 1000; // 2 minutes
-const GROUP_META_TIMEOUT = 5_000;      // 5 s — prevent indefinite hangs
+const GROUP_META_TTL     = 2 * 60 * 1000;
+const GROUP_META_TIMEOUT = 5_000;
 
 async function getCachedGroupMeta(sock: WASocket, jid: string): Promise<GroupMetaEntry> {
   const cached = groupMetaCache.get(jid);
@@ -169,12 +169,27 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  const ownerNumber = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
+  const ownerNumber  = (process.env["OWNER_NUMBER"] || "").replace(/[^0-9]/g, "");
   const defaultPrefix = process.env["PREFIX"] || ".";
 
   const jid = msg.key.remoteJid;
   if (!jid) {
     logger.warn("handleMessage: no remoteJid — dropped");
+    return;
+  }
+
+  // ── Safety net: drop protocol/Signal housekeeping messages ────────────────
+  // connection.ts already filters these but this guard catches anything that
+  // slips through (e.g. antidelete REVOKE that wasn't caught upstream).
+  const msgContent = msg.message;
+  if (
+    msgContent?.protocolMessage ||
+    msgContent?.reactionMessage ||
+    msgContent?.pollUpdateMessage ||
+    msgContent?.keepInChatMessage ||
+    msgContent?.senderKeyDistributionMessage
+  ) {
+    logger.info({ jid, type: msgContent ? Object.keys(msgContent)[0] : "unknown" }, "↩ Protocol/reaction message — dropped in handler");
     return;
   }
 
@@ -194,11 +209,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   const senderNumber  = realSenderJid.split(":")[0].split("@")[0];
   const isOwner       = ownerNumber !== "" && senderNumber === ownerNumber;
 
-  // ── Debug log: shows owner resolution in every message — remove once stable
-  logger.info(
-    { ownerNumber, senderNumber, senderJid, realSenderJid, isOwner, fromMe: msg.key.fromMe },
-    "🔑 Owner resolution"
-  );
+  logger.info({ ownerNumber, senderNumber, isOwner, fromMe: msg.key.fromMe }, "🔑 Owner resolution");
 
   const msgType = Object.keys(msg.message || {})[0] || "unknown";
 
@@ -208,7 +219,6 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  // ── Extract body ──────────────────────────────────────────────────────────
   const body =
     msg.message?.conversation ||
     msg.message?.extendedTextMessage?.text ||
@@ -226,11 +236,10 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  // ── Group context ─────────────────────────────────────────────────────────
   let groupSettings: GroupSettings | null = null;
   let isSenderGroupAdmin = false;
-  let isBotGroupAdmin = false;
-  let prefix = defaultPrefix;
+  let isBotGroupAdmin    = false;
+  let prefix   = defaultPrefix;
   let groupName: string | undefined;
   let groupNumber: string | undefined;
 
@@ -240,7 +249,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
       if (groupSettings?.customPrefix) prefix = groupSettings.customPrefix;
 
       const groupMeta = await getCachedGroupMeta(sock, jid);
-      groupName  = groupMeta.subject;
+      groupName   = groupMeta.subject;
       groupNumber = jid.split("@")[0];
       const botNumber = botJidFull.split(":")[0].split("@")[0];
 
@@ -258,19 +267,22 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
           await safeSend(sock, jid, { text: "Links are not allowed in this group." });
           return;
         }
+
         const badWordList = groupSettings.customBadWords
           ? groupSettings.customBadWords.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean)
           : DEFAULT_BAD_WORDS;
         if (groupSettings.antibadword !== "off" && !isOwner && badWordList.some((w) => body.toLowerCase().includes(w))) {
           await safeSend(sock, jid, { delete: msgKey });
           if (groupSettings.antibadword === "kick") {
-            await sock.groupParticipantsUpdate(jid, [senderJid], "remove");
-            await safeSend(sock, jid, { text: `@${senderJid.split("@")[0]} was kicked for using bad language.`, mentions: [senderJid] });
+            // FIX: use realSenderJid (resolved from @lid) for group operations
+            await sock.groupParticipantsUpdate(jid, [realSenderJid], "remove");
+            await safeSend(sock, jid, { text: `@${realSenderJid.split("@")[0]} was kicked for using bad language.`, mentions: [realSenderJid] });
           } else {
             await safeSend(sock, jid, { text: "Bad language is not allowed." });
           }
           return;
         }
+
         if (groupSettings.antimention && !isOwner && !isSenderGroupAdmin) {
           const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
           if (mentions.length >= 5) {
@@ -285,7 +297,15 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     }
   }
 
-  printMessageActivity({ msgType, pushName: msg.pushName || "", senderNumber, isGroup, groupName, groupNumber });
+  printMessageActivity({
+    msgType,
+    pushName: msg.pushName || "",
+    senderNumber,
+    isGroup,
+    groupName,
+    groupNumber,
+  });
+
   logger.info({ jid, prefix, hasPrefix: body.startsWith(prefix), bodyPreview: body.slice(0, 40) }, "📝 Body extracted");
 
   if (!body.startsWith(prefix)) {
@@ -306,9 +326,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  // ── Resolve reply JID (used for ALL outgoing replies from here on) ────────
-  // For groups: always the group JID.
-  // For DMs: resolve any @lid to the real @s.whatsapp.net JID.
+  // Resolve reply JID — always use real @s.whatsapp.net, never @lid
   const replyJid = isGroup
     ? jid
     : msg.key.fromMe
@@ -319,7 +337,8 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     logger.info({ lid: jid, resolved: replyJid }, "🔀 @lid resolved to real JID for reply");
   }
 
-  const userSettings = getUserSettings(senderJid);
+  // FIX: use realSenderJid (resolved) for ban lookup so @lid users are found correctly
+  const userSettings = getUserSettings(realSenderJid);
   if (userSettings?.isBanned && !isOwner) {
     await safeSend(sock, replyJid, { text: "You are banned from using this bot." });
     return;
@@ -327,7 +346,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
 
   const ctx: CommandContext = { jid: replyJid, isGroup, isOwner, isSenderGroupAdmin, isBotGroupAdmin, groupSettings, prefix };
   const commandText = body.slice(prefix.length).trim();
-  const parts       = commandText.split(/\s+/).filter(Boolean);
+  const parts = commandText.split(/\s+/).filter(Boolean);
   const [command = "", ...args] = parts;
   const cmd = command.toLowerCase();
 
@@ -346,7 +365,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     case "getsession":    return handleRefreshSession(sock, msg, ctx);
 
     // ── Bot status settings (owner only) ─────────────────────────────────────
-    // FIX: all safeSend calls use replyJid (not raw jid) so @lid DMs work correctly.
+    // FIX: all use replyJid instead of raw jid
     case "autoviewstatus":
     case "autoview": {
       if (!isOwner) { await safeSend(sock, replyJid, { text: "🚫 Only owner command" }); return; }
@@ -435,7 +454,10 @@ export async function handleGroupParticipantsUpdate(
         .replace(/\{name\}/gi, name)
         .replace(/\{group\}/gi, groupMeta.subject);
 
-      await safeSend(sock, groupId, { text: welcomeText, mentions: [participantJid] });
+      await safeSend(sock, groupId, {
+        text: welcomeText,
+        mentions: [participantJid],
+      });
     }
   } catch (err) {
     logger.warn({ err, groupId }, "Failed to send welcome message");
