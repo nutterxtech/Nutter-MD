@@ -80,13 +80,12 @@ async function onFirstConnect(sock: WASocket) {
       newsletterMetadata: (type: string, code: string) => Promise<{ id?: string }>;
     }).newsletterMetadata("invite", OWNER_CHANNEL_CODE);
     const actualJid = meta?.id ?? `${OWNER_CHANNEL_CODE}@newsletter`;
-    logger.info("[autofollow] Resolved channel JID: " + actualJid);
     try {
       await (sock as unknown as { newsletterFollow: (j: string) => Promise<void> }).newsletterFollow(actualJid);
       logger.info("✅ Auto-followed NUTTER-XMD channel (" + actualJid + ")");
     } catch (followErr: unknown) {
       const msg = followErr instanceof Error ? followErr.message : String(followErr);
-      logger.info("[autofollow] Skipped (already following or unavailable): " + msg);
+      logger.info("[autofollow] Skipped: " + msg);
     }
   } catch (metaErr: unknown) {
     const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
@@ -126,10 +125,6 @@ async function connectBot(sessionAuth: {
     logger: silentLogger,
     syncFullHistory: false,
     cachedGroupMetadata: async () => undefined,
-    // Return undefined on cache miss — triggers a proper key-retry request
-    // to the sender so they re-encrypt with a fresh Signal session.
-    // Returning a fake empty object suppresses the retry and messages stay
-    // as protocol stubs forever.
     getMessage: async (key) => {
       const cached = key.id ? popCachedMessage(key.id) : undefined;
       return cached?.message ?? undefined;
@@ -157,12 +152,12 @@ async function connectBot(sessionAuth: {
     if (connection === "open") {
       failureCount = 0;
       connectedAt = Date.now();
-      hasSentWelcome = false; // reset so owner gets notice on every reconnect
+      hasSentWelcome = false;
       logger.info("✅ NUTTER-XMD connected to WhatsApp");
 
       try {
         await (sock as unknown as { uploadPreKeys: () => Promise<void> }).uploadPreKeys();
-        logger.info("✅ Pre-keys uploaded to WhatsApp server");
+        logger.info("✅ Pre-keys uploaded");
       } catch (err) {
         logger.warn({ err }, "Pre-key upload skipped (non-fatal)");
       }
@@ -182,7 +177,7 @@ async function connectBot(sessionAuth: {
           );
           logger.info({ groups: count }, "✅ Group metadata cache pre-populated");
         } catch (err) {
-          logger.warn({ err }, "Could not pre-fetch group list — cache will warm on first message");
+          logger.warn({ err }, "Could not pre-fetch group list");
         }
       });
 
@@ -197,29 +192,28 @@ async function connectBot(sessionAuth: {
       const reason = boom?.output?.statusCode;
       const message = boom?.message ?? "unknown";
 
-      logger.warn({ reason, message }, `Connection closed — reason ${reason} (${message})`);
+      logger.warn({ reason, message }, `Connection closed — reason ${reason}`);
 
       if (reason === DisconnectReason.restartRequired) {
-        logger.info("Restart required by server — reconnecting immediately");
         void connectBot(sessionAuth);
         return;
       }
       if (reason === DisconnectReason.loggedOut) {
-        logger.error("❌ Bot logged out. Generate a new SESSION_ID from the pairing page.");
+        logger.error("❌ Bot logged out. Generate a new SESSION_ID.");
         return;
       }
       if (reason === 403) {
-        logger.error("❌ Session rejected (403). Generate a new SESSION_ID from the pairing page.");
+        logger.error("❌ Session rejected (403). Generate a new SESSION_ID.");
         return;
       }
 
       failureCount++;
       if (failureCount > MAX_RECONNECTS) {
-        logger.error({ reason, failureCount }, `❌ Failed ${MAX_RECONNECTS} times. Bot stopped.`);
+        logger.error({ reason, failureCount }, "❌ Too many failures. Bot stopped.");
         process.exit(1);
       }
 
-      logger.warn(`🔄 Reconnecting after failure... (${failureCount}/${MAX_RECONNECTS})`);
+      logger.warn(`🔄 Reconnecting... (${failureCount}/${MAX_RECONNECTS})`);
       setTimeout(() => void connectBot(sessionAuth), RECONNECT_DELAY_MS);
     }
   });
@@ -253,7 +247,6 @@ async function connectBot(sessionAuth: {
   sock.ev.on("messages.upsert", ({ messages, type }) => {
     logger.info({ type, count: messages.length }, "📨 messages.upsert fired");
 
-    // Only process real incoming notifications — not history sync or appended echoes
     if (type !== "notify") {
       logger.info({ type }, "↩ Skipped — type is not notify");
       return;
@@ -266,19 +259,30 @@ async function connectBot(sessionAuth: {
       const remoteJid    = msg.key?.remoteJid || "";
       const remoteNumber = remoteJid.split(":")[0].split("@")[0];
 
-      // ── fromMe filter ──────────────────────────────────────────────────────
+      // ── fromMe filter ────────────────────────────────────────────────────
       if (msg.key?.fromMe) {
         const isGroupJid = remoteJid.endsWith("@g.us");
         const isSelfChat = !!botNumber && remoteNumber === botNumber;
 
-        // LID-aware owner DM detection:
-        // When the owner DMs the bot, Baileys marks fromMe=true and remoteJid
-        // is the owner's @lid JID (e.g. "55427089834127@lid"). The LID number
-        // has NO relation to the owner's phone number so we must resolve it
-        // via the contacts.upsert map before comparing.
+        // ── FIX: owner DM detection without LID dependency ────────────────
+        // When the owner sends a command, Baileys delivers it with fromMe=true
+        // and remoteJid = owner's @lid JID. The LID number has no relation to
+        // the phone number so comparing them always fails.
+        //
+        // Strategy 1: try resolving @lid → real JID via contacts.upsert map
+        // Strategy 2: if still @lid (mapping not yet arrived), allow it through
+        //             anyway — a fromMe DM that isn't a self-chat can only be
+        //             from the owner's phone since only the owner's number is
+        //             paired to this bot session.
         const resolvedRemote = remoteJid.endsWith("@lid") ? resolveLid(remoteJid) : remoteJid;
         const resolvedNumber = resolvedRemote.split(":")[0].split("@")[0];
-        const isOwnerDM      = !!ownerNumber && resolvedNumber === ownerNumber;
+        const resolvedIsOwner = !!ownerNumber && resolvedNumber === ownerNumber;
+
+        // Still a @lid after resolution means the mapping hasn't arrived yet.
+        // A fromMe non-group non-selfchat DM can only originate from the paired
+        // owner device — pass it through.
+        const isUnresolvedLid = resolvedRemote.endsWith("@lid");
+        const isOwnerDM = resolvedIsOwner || isUnresolvedLid;
 
         if (!isSelfChat && !isGroupJid && !isOwnerDM) {
           logger.info(
@@ -287,29 +291,23 @@ async function connectBot(sessionAuth: {
           );
           continue;
         }
-        if (isSelfChat) logger.info({ jid: remoteJid }, "👤 Self-chat — processing as owner command");
-        if (isOwnerDM)  logger.info({ jid: remoteJid, resolved: resolvedRemote }, "👑 Owner DM — processing as owner command");
+        if (isSelfChat)          logger.info({ jid: remoteJid }, "👤 Self-chat — processing");
+        if (resolvedIsOwner)     logger.info({ jid: remoteJid, resolved: resolvedRemote }, "👑 Owner DM (resolved) — processing");
+        if (isUnresolvedLid && !isSelfChat) logger.info({ jid: remoteJid }, "👑 Owner DM (unresolved LID) — processing");
       }
 
-      // ── Must have message content and JID ────────────────────────────────
+      // ── Must have content ─────────────────────────────────────────────────
       if (!msg.message || !msg.key?.remoteJid) {
         const stubType = msg.messageStubType ?? 0;
         if (stubType === 0) {
-          logger.warn(
-            { jid: remoteJid, fromMe: msg.key?.fromMe },
-            "⚠️ Decryption failure — re-pair to fix session keys."
-          );
+          logger.warn({ jid: remoteJid, fromMe: msg.key?.fromMe }, "⚠️ Decryption failure — re-pair to fix.");
         } else {
           logger.info({ stubType, jid: remoteJid }, "↩ Protocol notification — skipped");
         }
         continue;
       }
 
-      // ── Drop pure protocol/Signal housekeeping messages immediately ───────
-      // protocolMessage = key retries, receipts, revokes, app state sync.
-      // reactionMessage and pollUpdateMessage also have no command body.
-      // None of these should ever reach handleMessage — they waste a queue
-      // slot and produce "No text body" spam in logs.
+      // ── Drop protocol/Signal housekeeping before dispatch ─────────────────
       const msgContent = msg.message;
       if (
         msgContent.protocolMessage ||
@@ -318,7 +316,6 @@ async function connectBot(sessionAuth: {
         msgContent.keepInChatMessage ||
         msgContent.senderKeyDistributionMessage
       ) {
-        // Special case: REVOKE (type 0) = antidelete trigger — handle it here
         if (msgContent.protocolMessage?.type === 0 && msgContent.protocolMessage.key?.id) {
           const deletedMsg = popCachedMessage(msgContent.protocolMessage.key.id);
           if (deletedMsg && ownerNumber) {
@@ -328,12 +325,11 @@ async function connectBot(sessionAuth: {
               const isGroup = srcJid.endsWith("@g.us");
               const gs      = isGroup ? getGroupSettings(srcJid) : null;
               if (isGroup && !gs?.antiDelete) return;
-
               const ownerJid  = `${ownerNumber}@s.whatsapp.net`;
               const senderNum = (capturedDeleted.key.participant || capturedDeleted.key.remoteJid || "")
                 .split(":")[0].split("@")[0];
               const where  = isGroup ? `group ${srcJid.split("@")[0]}` : `DM`;
-              const header = `🗑 *Deleted message detected*\n👤 From: ${capturedDeleted.pushName || senderNum} (${senderNum})\n📍 In: ${where}`;
+              const header = `🗑 *Deleted message*\n👤 From: ${capturedDeleted.pushName || senderNum}\n📍 In: ${where}`;
               const innerMsg = capturedDeleted.message;
               if (innerMsg?.conversation || innerMsg?.extendedTextMessage?.text) {
                 const text = innerMsg.conversation || innerMsg.extendedTextMessage?.text || "";
@@ -342,13 +338,12 @@ async function connectBot(sessionAuth: {
                 await safeSend(sock, ownerJid, { text: header });
                 await safeSend(sock, ownerJid, { forward: capturedDeleted, force: true } as Parameters<typeof sock.sendMessage>[1]);
               } else {
-                await safeSend(sock, ownerJid, { text: `${header}\n\n📎 (media/unsupported type)` });
+                await safeSend(sock, ownerJid, { text: `${header}\n\n📎 (media)` });
               }
-              logger.info({ from: senderNum, jid: srcJid }, "🗑 Antidelete: forwarded deleted message to owner");
             });
           }
         }
-        logger.info({ jid: remoteJid, type: Object.keys(msgContent)[0] }, "↩ Signal/protocol message — skipped");
+        logger.info({ jid: remoteJid, type: Object.keys(msgContent)[0] }, "↩ Protocol message — skipped");
         continue;
       }
 
@@ -356,23 +351,20 @@ async function connectBot(sessionAuth: {
       const sentAt = Number(msg.messageTimestamp) * 1000 || 0;
       const cutoff = connectedAt - 15_000;
       if (cutoff > 0 && sentAt > 0 && sentAt < cutoff) {
-        logger.info({ jid: remoteJid, sentAt, cutoff }, "⏩ Stale message — skipped (pre-connection)");
+        logger.info({ jid: remoteJid, sentAt, cutoff }, "⏩ Stale message — skipped");
         continue;
       }
 
       const jid = msg.key.remoteJid!;
       logger.info({ jid, jidType: jid.split("@")[1] ?? "unknown", fromMe: msg.key.fromMe }, "➡️ Dispatching message");
 
-      // ── Status broadcasts ─────────────────────────────────────────────────
       if (jid === "status@broadcast") {
         fireAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
         continue;
       }
 
-      // ── Cache for antidelete ──────────────────────────────────────────────
       cacheMessage(msg);
 
-      // ── Command handler — enqueued per-JID ───────────────────────────────
       const _capturedMsg = msg;
       enqueueForJid(jid, "handleMessage", async () => {
         const _start = Date.now();
@@ -427,7 +419,7 @@ async function connectBot(sessionAuth: {
       try {
         await sock.rejectCall(call.id, call.from);
         await safeSend(sock, call.from, { text: "🚫Calls are not allowed" });
-        logger.info({ from: call.from, callId: call.id }, "📵 Auto-rejected incoming call");
+        logger.info({ from: call.from }, "📵 Auto-rejected call");
       } catch (err) {
         logger.warn({ err, from: call.from }, "Failed to reject call");
       }
@@ -435,4 +427,4 @@ async function connectBot(sessionAuth: {
   });
 
   return sock;
-        }
+}
