@@ -162,7 +162,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  // Drop protocol messages that slipped through connection.ts
+  // Drop protocol/Signal housekeeping messages
   const msgContent = msg.message;
   if (
     msgContent?.protocolMessage ||
@@ -180,36 +180,45 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
   const isGroup    = jid.endsWith("@g.us");
   const botJidFull = sock.user?.id || "";
 
-  // ── isOwner detection — does NOT rely on LID resolution ──────────────────
-  // Three ways to be owner:
-  //   1. In a DM, msg.key.fromMe=true — only the owner's paired phone sends these
-  //   2. In a group, the sender's resolved phone number matches OWNER_NUMBER
-  //   3. In a DM, the sender's resolved phone number matches OWNER_NUMBER
+  // ── isOwner detection ─────────────────────────────────────────────────────
   //
-  // This means DM commands from the owner always work even before contacts.upsert
-  // has fired and registered the LID→JID mapping.
+  // Case 1: fromMe=true in a DM → owner by definition (only paired phone sends these)
+  //
+  // Case 2: incoming DM with @lid JID that still can't be resolved →
+  //   The LID→JID mapping arrives via contacts.upsert shortly after connect.
+  //   If it hasn't arrived yet, any unresolved @lid DM must be the owner
+  //   since only the owner's number is paired to this bot session.
+  //
+  // Case 3: resolved phone number matches OWNER_NUMBER (groups + resolved DMs)
   let isOwner = false;
+  let senderJidRaw: string;
+  let realSenderJid: string;
+  let senderNumber: string;
 
   if (!isGroup && msg.key.fromMe) {
-    // fromMe DM = owner by definition (only the paired phone can send these)
-    isOwner = true;
+    // Case 1: fromMe DM = owner
+    isOwner       = true;
+    senderJidRaw  = `${ownerNumber}@s.whatsapp.net`;
+    realSenderJid = senderJidRaw;
+    senderNumber  = ownerNumber;
     logger.info({ jid }, "👑 Owner identified via fromMe=true");
   } else {
-    // For group messages or incoming DMs, resolve LID and compare phone numbers
-    const senderRaw = isGroup
-      ? (msg.key.participant || botJidFull)
-      : jid;
-    const senderResolved = resolveLid(senderRaw);
-    const senderNumber   = senderResolved.split(":")[0].split("@")[0];
-    const numberMatch    = ownerNumber !== "" && senderNumber === ownerNumber;
-    // Unresolved @lid in a DM = can only be the owner (only the paired phone sends DMs to the bot)
-    const isUnresolvedOwnerLid = !isGroup && jid.endsWith("@lid") && senderResolved.endsWith("@lid");
+    senderJidRaw  = isGroup ? (msg.key.participant || botJidFull) : jid;
+    realSenderJid = resolveLid(senderJidRaw);
+    senderNumber  = realSenderJid.split(":")[0].split("@")[0];
+
+    const numberMatch = ownerNumber !== "" && senderNumber === ownerNumber;
+    // Case 2: unresolved @lid in a DM = owner
+    const isUnresolvedOwnerLid = !isGroup && jid.endsWith("@lid") && realSenderJid.endsWith("@lid");
+
     isOwner = numberMatch || isUnresolvedOwnerLid;
-    logger.info({ ownerNumber, senderNumber, senderRaw, senderResolved, isUnresolvedOwnerLid, isOwner }, "🔑 Owner resolution");
+    logger.info(
+      { ownerNumber, senderNumber, senderJidRaw, realSenderJid, numberMatch, isUnresolvedOwnerLid, isOwner },
+      "🔑 Owner resolution"
+    );
   }
 
   const msgType = Object.keys(msg.message || {})[0] || "unknown";
-
   const botMode = (process.env["BOT_MODE"] || "public").toLowerCase();
   if (botMode === "private" && !isOwner) {
     logger.info({ jid, msgType }, "Skipped — private mode");
@@ -226,11 +235,6 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
     msg.message?.templateButtonReplyMessage?.selectedId ||
     "";
-
-  // For display purposes — derive senderNumber from available info
-  const senderJidRaw  = isGroup ? (msg.key.participant || botJidFull) : (msg.key.fromMe ? `${ownerNumber}@s.whatsapp.net` : jid);
-  const realSenderJid = resolveLid(senderJidRaw);
-  const senderNumber  = realSenderJid.split(":")[0].split("@")[0];
 
   if (!body) {
     printMessageActivity({ msgType, pushName: msg.pushName || "", senderNumber, isGroup });
@@ -311,15 +315,24 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     return;
   }
 
-  // Resolve reply JID — always send to real @s.whatsapp.net, never @lid
-  const replyJid = isGroup
-    ? jid
-    : msg.key.fromMe
-      ? `${ownerNumber}@s.whatsapp.net`
-      : resolveLid(jid);
-
-  if (replyJid !== jid) {
-    logger.info({ lid: jid, resolved: replyJid }, "🔀 @lid resolved for reply");
+  // ── Resolve reply JID ─────────────────────────────────────────────────────
+  // For DMs: never send to a @lid JID — it silently fails after the first delivery.
+  // Priority: fromMe → owner's real JID | resolved → real JID | still @lid → owner fallback
+  let replyJid: string;
+  if (isGroup) {
+    replyJid = jid;
+  } else if (msg.key.fromMe) {
+    replyJid = `${ownerNumber}@s.whatsapp.net`;
+  } else {
+    const resolved = resolveLid(jid);
+    if (resolved.endsWith("@lid")) {
+      // LID not yet mapped — this must be the owner, use their real JID
+      replyJid = `${ownerNumber}@s.whatsapp.net`;
+      logger.info({ lid: jid, fallback: replyJid }, "🔀 @lid unresolved — using owner JID as reply fallback");
+    } else {
+      replyJid = resolved;
+      if (replyJid !== jid) logger.info({ lid: jid, resolved: replyJid }, "🔀 @lid resolved for reply");
+    }
   }
 
   const userSettings = getUserSettings(realSenderJid);
