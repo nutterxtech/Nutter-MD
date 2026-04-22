@@ -16,16 +16,27 @@ RUN apt-get update -qq > /dev/null 2>&1 \
 WORKDIR /app
 
 ENV GIT_SSL_NO_VERIFY=true
-
 RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" \
     && git config --global http.sslVerify false
 
-RUN npm install --loglevel=error --no-fund --no-audit \
-    @whiskeysockets/baileys@7.0.0-rc.9 \
-    thread-stream@3.1.0
+# Install pnpm globally
+RUN npm install -g pnpm --loglevel=error --no-fund --no-audit
 
-COPY artifacts/api-server/dist ./artifacts/api-server/dist
+# Copy package files first for better layer caching
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY artifacts/api-server/package.json ./artifacts/api-server/
+COPY artifacts/nutter-xmd/package.json ./artifacts/nutter-xmd/
+
+# Install all dependencies
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Copy full source
+COPY . .
+
+# Build both packages from source
+RUN pnpm --filter @workspace/nutter-xmd run build \
+    && pnpm --filter @workspace/api-server run build
 
 ENV NODE_ENV=production
 
-CMD ["node", "artifacts/api-server/dist/index.mjs"]
+CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
