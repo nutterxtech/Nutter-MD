@@ -1,8 +1,8 @@
 # See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# compiled output — dist folders are built by Heroku during heroku-postbuild
-# DO NOT un-ignore these — Heroku must compile from source so code changes take effect
+# compiled output — built inside Docker during deployment, not committed to repo
 dist
+
 tmp
 out-tsc
 *.tsbuildinfo
