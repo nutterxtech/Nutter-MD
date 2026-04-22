@@ -1,7 +1,13 @@
 # See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# compiled output — built inside Docker during deployment, not committed to repo
+# compiled output
+# api-server dist is built inside Docker — do NOT commit it
 dist
+artifacts/api-server/dist/
+
+# frontend dist IS committed to repo (built locally, copied by Docker as-is)
+!artifacts/nutter-xmd/dist/
+!artifacts/nutter-xmd/dist/**
 
 tmp
 out-tsc
