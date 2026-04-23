@@ -81,17 +81,39 @@ export async function loadSessionFromEnv(): Promise<{
     logger.info({ sessionDir, existingFiles: fs.readdirSync(sessionDir).length }, "📁 Reusing existing session directory");
   }
 
+  // ── Purge stale Signal session files before writing ──────────────────────
+  // session-*.json files contain per-contact Signal ratchet state. When the
+  // bot is re-linked (new pairing), these files become invalid — the remote
+  // identity keys no longer match what WhatsApp expects, causing
+  // "Decrypted message with closed session" errors and silent send failures.
+  // Deleting them forces Baileys to negotiate fresh sessions on first contact.
+  // We keep creds, pre-keys and sender-keys — those survive a re-link fine.
+  let purged = 0;
+  if (fs.existsSync(sessionDir)) {
+    for (const f of fs.readdirSync(sessionDir)) {
+      if (f.startsWith("session-") && f.endsWith(".json")) {
+        try { fs.rmSync(path.join(sessionDir, f)); purged++; } catch { /* ignore */ }
+      }
+    }
+    if (purged > 0) {
+      logger.info({ purged }, "🧹 Purged stale session files — fresh Signal sessions will be negotiated on first contact");
+    }
+  }
+
   let written = 0, skipped = 0;
   for (const [filename, content] of Object.entries(fileMap)) {
     const filePath = path.join(sessionDir, filename);
-    if (!fs.existsSync(filePath)) {
+    // session-*.json: always write from SESSION_ID (stale ones were just purged)
+    // everything else: skip if a newer runtime version already exists on disk
+    const isSessionFile = filename.startsWith("session-") && filename.endsWith(".json");
+    if (isSessionFile || !fs.existsSync(filePath)) {
       fs.writeFileSync(filePath, JSON.stringify(content), "utf-8");
       written++;
     } else {
       skipped++;
     }
   }
-  logger.info({ written, skipped }, "📝 Session files written");
+  logger.info({ written, skipped, purged }, "📝 Session files written");
 
   let authState: Awaited<ReturnType<import("@whiskeysockets/baileys")["useMultiFileAuthState"]>>;
   try {
