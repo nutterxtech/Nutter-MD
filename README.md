@@ -16,7 +16,7 @@ NUTTER-XMD is a WhatsApp bot that runs on your own Heroku instance. It supports 
 
 Visit the pairing page and link your WhatsApp number:
 
-**Pairing Page:** [nutter-md-31047d4ad9a9.herokuapp.com](https://nutter-md-31047d4ad9a9.herokuapp.com)
+**Pairing Page:** [ 𝗣𝗔𝗜𝗥𝗜𝗡𝗚  𝗣𝗔𝗚𝗘 ]([[https://nutter-xmd-d5ce894ba4519.herokuapp.com]])
 
 1. Enter your phone number in international format (e.g. `+254712345678`)
 2. You will receive a pair code — enter it in WhatsApp under **Linked Devices → Link a Device**
