@@ -268,10 +268,21 @@ async function connectBot(sessionAuth: {
       // which would get dropped by the protocol filter below. We must route
       // status@broadcast to handleStatusMessage before reaching that filter.
       if (remoteJid === "status@broadcast") {
+        // Only react to statuses posted AFTER the bot connected — skip replayed history
+        const statusSentAt = Number(msg.messageTimestamp) * 1000 || 0;
+        const statusCutoff = connectedAt - 15_000;
+        if (statusCutoff > 0 && statusSentAt > 0 && statusSentAt < statusCutoff) {
+          continue; // stale status — skip silently
+        }
         if (msg.message && msg.key?.remoteJid) {
           fireAsync("handleStatusMessage", () => handleStatusMessage(sock, msg));
         }
         continue;
+      }
+
+      // ── Log all incoming non-status messages for diagnostics ─────────────
+      if (!msg.key?.fromMe) {
+        logger.info({ jid: remoteJid, jidType: remoteJid.split("@")[1] ?? "unknown", hasMsg: !!msg.message }, "📥 Incoming message (fromMe=false)");
       }
 
       // ── fromMe filter ────────────────────────────────────────────────────
@@ -296,6 +307,12 @@ async function connectBot(sessionAuth: {
         if (isSelfChat)          logger.info({ jid: remoteJid }, "👤 Self-chat — processing");
         if (resolvedIsOwner)     logger.info({ jid: remoteJid, resolved: resolvedRemote }, "👑 Owner DM (resolved) — processing");
         if (isUnresolvedLid && !isSelfChat) logger.info({ jid: remoteJid }, "👑 Owner DM (unresolved LID) — processing");
+      }
+
+      // ── Debug: log all non-fromMe messages that reach this point ───────────
+      if (!msg.key?.fromMe) {
+        const msgType = msg.message ? Object.keys(msg.message)[0] : "no-content";
+        logger.info({ jid: remoteJid, fromMe: false, msgType }, "📥 Incoming message (non-owner)");
       }
 
       // ── Must have content ─────────────────────────────────────────────────
