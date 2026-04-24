@@ -81,13 +81,20 @@ export async function loadSessionFromEnv(): Promise<{
     logger.info({ sessionDir, existingFiles: fs.readdirSync(sessionDir).length }, "📁 Reusing existing session directory");
   }
 
-  // ── Purge stale Signal session files before writing ──────────────────────
-  // session-*.json files contain per-contact Signal ratchet state. When the
-  // bot is re-linked (new pairing), these files become invalid — the remote
-  // identity keys no longer match what WhatsApp expects, causing
-  // "Decrypted message with closed session" errors and silent send failures.
-  // Deleting them forces Baileys to negotiate fresh sessions on first contact.
-  // We keep creds, pre-keys and sender-keys — those survive a re-link fine.
+  // ── Write session files, skipping session-*.json ────────────────────────
+  // session-*.json files contain per-contact Signal ratchet state tied to a
+  // specific pairing. After any restart on Heroku (ephemeral /tmp), these
+  // files are gone anyway. Writing them from SESSION_ID causes "Decrypted
+  // message with closed session" errors when the saved ratchet state no longer
+  // matches what WhatsApp expects.
+  //
+  // Strategy: NEVER write session-*.json from SESSION_ID. Always let Baileys
+  // negotiate a fresh Signal session on first contact (takes 1-2 seconds per
+  // contact, then cached in memory for the lifetime of the dyno). Only creds,
+  // pre-keys, and sender-keys are written — those survive restarts fine.
+  //
+  // Purge any stale session files on disk in case they were left by a
+  // previous run on the same dyno.
   let purged = 0;
   if (fs.existsSync(sessionDir)) {
     for (const f of fs.readdirSync(sessionDir)) {
@@ -96,24 +103,26 @@ export async function loadSessionFromEnv(): Promise<{
       }
     }
     if (purged > 0) {
-      logger.info({ purged }, "🧹 Purged stale session files — fresh Signal sessions will be negotiated on first contact");
+      logger.info({ purged }, "🧹 Purged stale on-disk session files");
     }
   }
 
   let written = 0, skipped = 0;
-  for (const [filename, content] of Object.entries(fileMap)) {
+  for (const [filename, fileContent] of Object.entries(fileMap)) {
+    // NEVER restore session-*.json from SESSION_ID — always negotiate fresh
+    if (filename.startsWith("session-") && filename.endsWith(".json")) {
+      skipped++;
+      continue;
+    }
     const filePath = path.join(sessionDir, filename);
-    // session-*.json: always write from SESSION_ID (stale ones were just purged)
-    // everything else: skip if a newer runtime version already exists on disk
-    const isSessionFile = filename.startsWith("session-") && filename.endsWith(".json");
-    if (isSessionFile || !fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, JSON.stringify(content), "utf-8");
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify(fileContent), "utf-8");
       written++;
     } else {
       skipped++;
     }
   }
-  logger.info({ written, skipped, purged }, "📝 Session files written");
+  logger.info({ written, skipped, purged, note: "session-*.json intentionally skipped — fresh Signal sessions negotiated on first contact" }, "📝 Session files written");
 
   let authState: Awaited<ReturnType<import("@whiskeysockets/baileys")["useMultiFileAuthState"]>>;
   try {
