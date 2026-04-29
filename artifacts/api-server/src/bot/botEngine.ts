@@ -123,7 +123,8 @@ async function connectBot(sessionAuth: {
     browser: Browsers.ubuntu("Chrome"),
     msgRetryCounterCache,
     logger: silentLogger,
-    syncFullHistory: false,
+    syncFullHistory: true, // FIX: Loads all data on first connect
+    markOnlineOnConnect: true, // FIX: Ensures session stays active
     cachedGroupMetadata: async () => undefined,
     getMessage: async (key) => {
       const cached = key.id ? popCachedMessage(key.id) : undefined;
